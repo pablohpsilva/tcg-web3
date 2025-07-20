@@ -149,7 +149,9 @@ contract TotalDeckCostAnalysis is Test {
         
         // Verify we got the expected number of cards
         assertEq(tokenIds.length, deck.totalCards, "Should receive exact number of cards");
-        assertTrue(totalCostPaid > deckPrice, "Total cost should include gas fees");
+        // Note: In forge testing environment, gas costs are not deducted from balance
+        // In real deployment, totalCostPaid would include gas fees
+        assertEq(totalCostPaid, deckPrice, "In test environment, only deck price is deducted");
     }
 
     /**

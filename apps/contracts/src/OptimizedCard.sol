@@ -4,16 +4,15 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 import "./interfaces/ICard.sol";
 
 /**
- * @title Card - Gas-Optimized Trading Card Contract
- * @dev ERC1155 implementation with massive gas savings and comprehensive royalty support
+ * @title OptimizedCard - ERC1155 Implementation for Massive Gas Savings
+ * @dev Pure ERC1155 implementation with optimized storage and batch operations
  * @notice Provides 98.5% gas savings compared to ERC721 approach for fungible cards
  */
-contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
+contract OptimizedCard is ERC1155, Ownable, ReentrancyGuard, IERC2981, ICard {
     
     // ============ Packed Storage for Gas Efficiency ============
     
@@ -42,18 +41,10 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
      */
     mapping(address => bool) private _authorizedMinters;
     
-    // ============ Enhanced Royalty System ============
-    
-    /**
-     * @dev Comprehensive royalty information with multiple recipients
-     */
+    // Royalty info (packed)
     struct RoyaltyInfo {
-        address primaryRecipient;   // 20 bytes - main royalty recipient
-        address secondaryRecipient; // 20 bytes - secondary recipient (optional)
-        uint96 primaryPercentage;   // 12 bytes - primary percentage in basis points
-        uint96 secondaryPercentage; // 12 bytes - secondary percentage in basis points
-        bool isActive;              // 1 byte - whether royalties are active
-        // Total: 65 bytes (3 storage slots)
+        address recipient;  // 20 bytes
+        uint96 percentage;  // 12 bytes (basis points, max 655.35%)
     }
     RoyaltyInfo private _royaltyInfo;
     
@@ -63,8 +54,6 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
     event MinterAuthorized(address indexed minter);
     event MinterRevoked(address indexed minter);
     event CardActivated(bool active);
-    event RoyaltyUpdated(address indexed recipient, uint256 percentage);
-    event BatchMintCompleted(address indexed to, uint256 amount, uint256 totalSupply);
     
     // ============ Constructor ============
     
@@ -91,22 +80,11 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         _cardName = name_;
         _baseTokenURI = baseURI_;
         
-        // Set default royalty: 2.5% to owner, 0.5% to platform
+        // Set 0.1% royalty to owner
         _royaltyInfo = RoyaltyInfo({
-            primaryRecipient: owner_,
-            secondaryRecipient: address(0), // Can be set later
-            primaryPercentage: 250,  // 2.5% in basis points
-            secondaryPercentage: 50, // 0.5% in basis points  
-            isActive: true
+            recipient: owner_,
+            percentage: 10 // 0.1% in basis points
         });
-        
-        // Auto-authorize the CardSet that created this card
-        if (msg.sender != owner_) {
-            _authorizedMinters[msg.sender] = true;
-            emit MinterAuthorized(msg.sender);
-        }
-        
-        emit RoyaltyUpdated(owner_, 250);
     }
     
     // ============ Optimized Minting Functions ============
@@ -115,7 +93,7 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
      * @dev Batch mint multiple cards (MASSIVE gas savings!)
      * @notice 98.5% gas savings vs individual ERC721 mints
      */
-    function batchMint(address to, uint256 amount) external onlyAuthorizedMinter whenNotPaused returns (uint256[] memory) {
+    function batchMint(address to, uint256 amount) external onlyAuthorizedMinter returns (uint256[] memory) {
         require(_cardInfo.active, "Card not active");
         require(_cardInfo.currentSupply + amount <= _cardInfo.maxSupply || _cardInfo.maxSupply == 0, "Exceeds max supply");
         
@@ -126,7 +104,6 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         _mint(to, _cardInfo.cardId, amount, "");
         
         emit CardMinted(to, _cardInfo.cardId, amount);
-        emit BatchMintCompleted(to, amount, _cardInfo.currentSupply);
         
         // Return array for compatibility
         uint256[] memory tokenIds = new uint256[](amount);
@@ -137,9 +114,28 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
     }
     
     /**
+     * @dev Batch mint different amounts (ultimate flexibility) - alias for batchMint
+     */
+    function mintBatch(address to, uint256 quantity) external onlyAuthorizedMinter returns (uint256[] memory) {
+        require(_cardInfo.active, "Card not active");
+        require(_cardInfo.currentSupply + quantity <= _cardInfo.maxSupply || _cardInfo.maxSupply == 0, "Exceeds max supply");
+        
+        _cardInfo.currentSupply += uint32(quantity);
+        _mint(to, _cardInfo.cardId, quantity, "");
+        
+        emit CardMinted(to, _cardInfo.cardId, quantity);
+        
+        uint256[] memory tokenIds = new uint256[](quantity);
+        for (uint256 i = 0; i < quantity; i++) {
+            tokenIds[i] = _cardInfo.cardId;
+        }
+        return tokenIds;
+    }
+    
+    /**
      * @dev Mint single card (still optimized)
      */
-    function mint(address to) external onlyAuthorizedMinter whenNotPaused returns (uint256) {
+    function mint(address to) external onlyAuthorizedMinter returns (uint256) {
         require(_cardInfo.active, "Card not active");
         require(_cardInfo.currentSupply < _cardInfo.maxSupply || _cardInfo.maxSupply == 0, "Exceeds max supply");
         
@@ -150,25 +146,7 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         return _cardInfo.cardId;
     }
     
-    /**
-     * @dev Batch mint different amounts (ultimate flexibility) - alias for batchMint
-     */
-    function mintBatch(address to, uint256 quantity) external onlyAuthorizedMinter whenNotPaused returns (uint256[] memory) {
-        require(_cardInfo.active, "Card not active");
-        require(_cardInfo.currentSupply + quantity <= _cardInfo.maxSupply || _cardInfo.maxSupply == 0, "Exceeds max supply");
-        
-        _cardInfo.currentSupply += uint32(quantity);
-        _mint(to, _cardInfo.cardId, quantity, "");
-        
-        emit CardMinted(to, _cardInfo.cardId, quantity);
-        emit BatchMintCompleted(to, quantity, _cardInfo.currentSupply);
-        
-        uint256[] memory tokenIds = new uint256[](quantity);
-        for (uint256 i = 0; i < quantity; i++) {
-            tokenIds[i] = _cardInfo.cardId;
-        }
-        return tokenIds;
-    }
+
     
     // ============ Gas-Optimized View Functions ============
     
@@ -237,84 +215,6 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         return _authorizedMinters[minter] || minter == owner();
     }
     
-    // ============ Enhanced Royalty System ============
-    
-    /**
-     * @dev Comprehensive royalty information supporting multiple recipients
-     */
-    function royaltyInfo(uint256, uint256 salePrice) external view override returns (address, uint256) {
-        if (!_royaltyInfo.isActive) {
-            return (address(0), 0);
-        }
-        
-        // Calculate total royalty amount
-        uint256 totalPercentage = _royaltyInfo.primaryPercentage + _royaltyInfo.secondaryPercentage;
-        uint256 royaltyAmount = (salePrice * totalPercentage) / 10000;
-        
-        // Return primary recipient for ERC2981 compatibility
-        return (_royaltyInfo.primaryRecipient, royaltyAmount);
-    }
-    
-    /**
-     * @dev Get detailed royalty information for both recipients
-     */
-         function getRoyaltyInfo(uint256 salePrice) external view returns (
-         address primaryRecipient,
-         uint256 primaryAmount,
-         address secondaryRecipient,
-         uint256 secondaryAmount,
-         bool royaltyActive
-     ) {
-         if (!_royaltyInfo.isActive) {
-             return (address(0), 0, address(0), 0, false);
-         }
-         
-         primaryRecipient = _royaltyInfo.primaryRecipient;
-         primaryAmount = (salePrice * _royaltyInfo.primaryPercentage) / 10000;
-         secondaryRecipient = _royaltyInfo.secondaryRecipient;
-         secondaryAmount = (salePrice * _royaltyInfo.secondaryPercentage) / 10000;
-         royaltyActive = _royaltyInfo.isActive;
-     }
-    
-    /**
-     * @dev Set primary royalty recipient and percentage
-     */
-    function setRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
-        require(receiver != address(0), "Invalid recipient");
-        require(feeNumerator <= 1000, "Royalty too high"); // Max 10%
-        
-        _royaltyInfo.primaryRecipient = receiver;
-        _royaltyInfo.primaryPercentage = feeNumerator;
-        
-        emit RoyaltyUpdated(receiver, feeNumerator);
-    }
-    
-    /**
-     * @dev Set secondary royalty recipient (for platform fees, etc.)
-     */
-    function setSecondaryRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
-        require(feeNumerator <= 500, "Secondary royalty too high"); // Max 5%
-        
-        _royaltyInfo.secondaryRecipient = receiver;
-        _royaltyInfo.secondaryPercentage = feeNumerator;
-        
-        emit RoyaltyUpdated(receiver, feeNumerator);
-    }
-    
-    /**
-     * @dev Enable or disable royalty payments
-     */
-    function setRoyaltyActive(bool active) external onlyOwner {
-        _royaltyInfo.isActive = active;
-    }
-    
-    /**
-     * @dev Get current royalty percentages
-     */
-         function getRoyaltyPercentages() external view returns (uint96 primary, uint96 secondary, bool royaltyActive) {
-         return (_royaltyInfo.primaryPercentage, _royaltyInfo.secondaryPercentage, _royaltyInfo.isActive);
-     }
-    
     // ============ Admin Functions ============
     
     function setActive(bool active_) external onlyOwner {
@@ -326,12 +226,9 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         _baseTokenURI = newURI;
     }
     
-    function pause() external onlyOwner {
-        _pause();
-    }
-    
-    function unpause() external onlyOwner {
-        _unpause();
+    function setRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
+        require(feeNumerator <= 1000, "Royalty too high"); // Max 10%
+        _royaltyInfo = RoyaltyInfo(receiver, feeNumerator);
     }
     
     // ============ URI Functions ============
@@ -343,6 +240,13 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
     
     function setBaseURI(string calldata newBaseURI) external onlyOwner {
         _baseTokenURI = newBaseURI;
+    }
+    
+    // ============ Royalty Implementation ============
+    
+    function royaltyInfo(uint256, uint256 salePrice) external view override returns (address, uint256) {
+        uint256 royaltyAmount = (salePrice * _royaltyInfo.percentage) / 10000;
+        return (_royaltyInfo.recipient, royaltyAmount);
     }
     
     // ============ Interface Support ============
@@ -392,34 +296,5 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
             erc1155GasPerMint,
             (_cardInfo.currentSupply * (erc721GasPerMint - erc1155GasPerMint))
         );
-    }
-    
-    // ============ Royalty Payment Helper ============
-    
-    /**
-     * @dev Helper function for marketplaces to distribute royalty payments
-     */
-    function distributeRoyalties(uint256 salePrice) external payable {
-        require(msg.value >= salePrice, "Insufficient payment");
-        require(_royaltyInfo.isActive, "Royalties not active");
-        
-        uint256 primaryAmount = (salePrice * _royaltyInfo.primaryPercentage) / 10000;
-        uint256 secondaryAmount = (salePrice * _royaltyInfo.secondaryPercentage) / 10000;
-        
-        // Send primary royalty
-        if (primaryAmount > 0 && _royaltyInfo.primaryRecipient != address(0)) {
-            payable(_royaltyInfo.primaryRecipient).transfer(primaryAmount);
-        }
-        
-        // Send secondary royalty
-        if (secondaryAmount > 0 && _royaltyInfo.secondaryRecipient != address(0)) {
-            payable(_royaltyInfo.secondaryRecipient).transfer(secondaryAmount);
-        }
-        
-        // Return any excess
-        uint256 remaining = msg.value - primaryAmount - secondaryAmount;
-        if (remaining > 0) {
-            payable(msg.sender).transfer(remaining);
-        }
     }
 } 
