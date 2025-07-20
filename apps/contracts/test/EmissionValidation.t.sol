@@ -137,7 +137,7 @@ contract EmissionValidationTest is Test {
         assertEq(cardSet.totalEmission(), 15, "Should have emitted exactly 15 cards");
         
         // Second pack should fail due to emission cap
-        vm.expectRevert("Emission cap exceeded");
+        vm.expectRevert(abi.encodeWithSignature("SecurityBreach(string)", "emission cap exceeded"));
         cardSet.openPack{value: 0.01 ether}();
         
         vm.stopPrank();
@@ -301,7 +301,7 @@ contract EmissionValidationTest is Test {
         vrfCoordinator.autoFulfillRequest(requestId2, 15);
         
         // Third pack should fail
-        vm.expectRevert("Emission cap exceeded");
+        vm.expectRevert(abi.encodeWithSignature("SecurityBreach(string)", "emission cap exceeded"));
         cardSet.openPack{value: 0.01 ether}();
         
         vm.stopPrank();
