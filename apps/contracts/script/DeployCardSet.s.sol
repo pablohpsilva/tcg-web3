@@ -43,10 +43,12 @@ contract DeployCardSet is Script {
         
         console.log("Deployment completed!");
         console.log("Next steps:");
-        console.log("1. Add cards to each set using addCard()");
-        console.log("2. Create deck types using addDeckType()");
-        console.log("3. Set pack and deck prices");
-        console.log("4. Start selling packs and decks!");
+        console.log("1. Deploy individual Card contracts for each card type");
+        console.log("2. Add Card contracts to sets using addCardContract()");
+        console.log("3. Create deck types using addDeckType() with Card contract addresses");
+        console.log("4. Set pack and deck prices");
+        console.log("5. Or use SetupCardSet.s.sol script to automate steps 1-4");
+        console.log("6. Start selling packs and decks!");
     }
 }
 

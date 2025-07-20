@@ -327,10 +327,12 @@ contract CardSet is
         if (cardContract == address(0)) revert CardSetErrors.ZeroAddress();
         if (_isValidCardContract[cardContract]) revert CardSetErrors.CardAlreadyExists(0);
         
-        // Verify it's a valid Card contract
+        // Verify it's a valid Card contract and that we're authorized to mint
         try ICard(cardContract).cardInfo() returns (ICard.CardInfo memory info) {
-            // Add this contract as an authorized minter on the Card contract
-            ICard(cardContract).addAuthorizedMinter(address(this));
+            // Verify that this CardSet is authorized to mint from the Card contract
+            if (!ICard(cardContract).isAuthorizedMinter(address(this))) {
+                revert CardSetErrors.NotAuthorized();
+            }
             
             _cardContracts.push(cardContract);
             _isValidCardContract[cardContract] = true;
@@ -370,9 +372,6 @@ contract CardSet is
         }
         
         _isValidCardContract[cardContract] = false;
-        
-        // Remove this contract as an authorized minter
-        ICard(cardContract).removeAuthorizedMinter(address(this));
     }
 
     /**

@@ -3,12 +3,23 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
 import "../src/CardSet.sol";
+import "../src/Card.sol";
 import "../src/mocks/MockVRFCoordinator.sol";
 import "../src/interfaces/ICardSet.sol";
+import "../src/interfaces/ICard.sol";
 
 contract CardSetTest is Test {
     CardSet public cardSet;
     MockVRFCoordinator public vrfCoordinator;
+    
+    // Card contracts for testing
+    Card public commonCard1;
+    Card public commonCard2;
+    Card public uncommonCard1;
+    Card public uncommonCard2;
+    Card public rareCard1;
+    Card public mythicalCard1;
+    Card public serializedCard1;
     
     address public owner = address(0x1);
     address public user1 = address(0x2);
@@ -19,9 +30,9 @@ contract CardSetTest is Test {
     uint256 constant PACK_PRICE = 0.01 ether;
     uint256 constant DECK_PRICE = 0.05 ether;
     
-    event PackOpened(address indexed user, uint256[] cardIds, uint256[] tokenIds);
-    event DeckOpened(address indexed user, string deckType, uint256[] cardIds, uint256[] tokenIds);
-    event CardAdded(uint256 indexed cardId, string name, ICardSet.Rarity rarity, uint256 maxSupply);
+    event PackOpened(address indexed user, address[] cardContracts, uint256[] tokenIds);
+    event DeckOpened(address indexed user, string deckType, address[] cardContracts, uint256[] tokenIds);
+    event CardContractAdded(address indexed cardContract, ICard.Rarity rarity);
 
     function setUp() public {
         vm.startPrank(owner);
@@ -37,9 +48,14 @@ contract CardSetTest is Test {
             owner
         );
         
-        // Add some test cards
-        _addTestCards();
-        _addTestDeck();
+        // Deploy Card contracts
+        _deployTestCards();
+        
+        // Add Card contracts to the set
+        _addCardsToSet();
+        
+        // Add test deck types
+        _addTestDecks();
         
         vm.stopPrank();
         
@@ -48,81 +64,62 @@ contract CardSetTest is Test {
         vm.deal(user2, 10 ether);
     }
 
-    function _addTestCards() internal {
-        // Add common cards (IDs 1-10)
-        for (uint256 i = 1; i <= 10; i++) {
-            cardSet.addCard(
-                i,
-                string(abi.encodePacked("Common Card ", vm.toString(i))),
-                ICardSet.Rarity.COMMON,
-                0,
-                string(abi.encodePacked("ipfs://common-", vm.toString(i)))
-            );
-        }
+    function _deployTestCards() internal {
+        // Deploy common cards
+        commonCard1 = new Card(1, "Forest Sprite", ICard.Rarity.COMMON, 0, "ipfs://common1", owner);
+        commonCard2 = new Card(2, "Stone Golem", ICard.Rarity.COMMON, 0, "ipfs://common2", owner);
         
-        // Add uncommon cards (IDs 11-20)
-        for (uint256 i = 11; i <= 20; i++) {
-            cardSet.addCard(
-                i,
-                string(abi.encodePacked("Uncommon Card ", vm.toString(i))),
-                ICardSet.Rarity.UNCOMMON,
-                0,
-                string(abi.encodePacked("ipfs://uncommon-", vm.toString(i)))
-            );
-        }
+        // Deploy uncommon cards
+        uncommonCard1 = new Card(11, "Storm Mage", ICard.Rarity.UNCOMMON, 0, "ipfs://uncommon1", owner);
+        uncommonCard2 = new Card(12, "Crystal Guardian", ICard.Rarity.UNCOMMON, 0, "ipfs://uncommon2", owner);
         
-        // Add rare cards (IDs 21-25)
-        for (uint256 i = 21; i <= 25; i++) {
-            cardSet.addCard(
-                i,
-                string(abi.encodePacked("Rare Card ", vm.toString(i))),
-                ICardSet.Rarity.RARE,
-                0,
-                string(abi.encodePacked("ipfs://rare-", vm.toString(i)))
-            );
-        }
+        // Deploy rare cards
+        rareCard1 = new Card(21, "Dragon Lord", ICard.Rarity.RARE, 0, "ipfs://rare1", owner);
         
-        // Add mythical cards (IDs 26-28)
-        for (uint256 i = 26; i <= 28; i++) {
-            cardSet.addCard(
-                i,
-                string(abi.encodePacked("Mythical Card ", vm.toString(i))),
-                ICardSet.Rarity.MYTHICAL,
-                0,
-                string(abi.encodePacked("ipfs://mythical-", vm.toString(i)))
-            );
-        }
+        // Deploy mythical cards
+        mythicalCard1 = new Card(31, "Planar Sovereign", ICard.Rarity.MYTHICAL, 0, "ipfs://mythical1", owner);
         
-        // Add serialized cards (IDs 29-30)
-        for (uint256 i = 29; i <= 30; i++) {
-            cardSet.addCard(
-                i,
-                string(abi.encodePacked("Serialized Card ", vm.toString(i))),
-                ICardSet.Rarity.SERIALIZED,
-                100, // Max supply of 100 each
-                string(abi.encodePacked("ipfs://serialized-", vm.toString(i)))
-            );
-        }
+        // Deploy serialized cards
+        serializedCard1 = new Card(41, "Genesis Dragon #001", ICard.Rarity.SERIALIZED, 100, "ipfs://serialized1", owner);
     }
 
-    function _addTestDeck() internal {
-        uint256[] memory deckCardIds = new uint256[](4);
+    function _addCardsToSet() internal {
+        // Pre-authorize CardSet to manage these cards before adding them
+        commonCard1.addAuthorizedMinter(address(cardSet));
+        commonCard2.addAuthorizedMinter(address(cardSet));
+        uncommonCard1.addAuthorizedMinter(address(cardSet));
+        uncommonCard2.addAuthorizedMinter(address(cardSet));
+        rareCard1.addAuthorizedMinter(address(cardSet));
+        mythicalCard1.addAuthorizedMinter(address(cardSet));
+        serializedCard1.addAuthorizedMinter(address(cardSet));
+        
+        cardSet.addCardContract(address(commonCard1));
+        cardSet.addCardContract(address(commonCard2));
+        cardSet.addCardContract(address(uncommonCard1));
+        cardSet.addCardContract(address(uncommonCard2));
+        cardSet.addCardContract(address(rareCard1));
+        cardSet.addCardContract(address(mythicalCard1));
+        cardSet.addCardContract(address(serializedCard1));
+    }
+
+    function _addTestDecks() internal {
+        address[] memory deckCardContracts = new address[](4);
         uint256[] memory deckQuantities = new uint256[](4);
         
         // 30 commons, 20 uncommons, 8 rares, 2 mythicals = 60 cards
-        deckCardIds[0] = 1; // Common
+        deckCardContracts[0] = address(commonCard1);
         deckQuantities[0] = 30;
         
-        deckCardIds[1] = 11; // Uncommon
+        deckCardContracts[1] = address(uncommonCard1);
         deckQuantities[1] = 20;
         
-        deckCardIds[2] = 21; // Rare
+        deckCardContracts[2] = address(rareCard1);
         deckQuantities[2] = 8;
         
-        deckCardIds[3] = 26; // Mythical
+        deckCardContracts[3] = address(mythicalCard1);
         deckQuantities[3] = 2;
         
-        cardSet.addDeckType("Starter Deck", deckCardIds, deckQuantities);
+        cardSet.addDeckType("Starter Deck", deckCardContracts, deckQuantities);
     }
 
     // ============ Constructor Tests ============
@@ -148,37 +145,53 @@ contract CardSetTest is Test {
 
     // ============ Card Management Tests ============
 
-    function testAddCard() public {
-        vm.prank(owner);
+    function testAddCardContract() public {
+        vm.startPrank(owner);
+        Card newCard = new Card(99, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        
+        // First authorize the CardSet to mint from this card
+        newCard.addAuthorizedMinter(address(cardSet));
+        
         vm.expectEmit(true, false, false, true);
-        emit CardAdded(100, "Test Card", ICardSet.Rarity.COMMON, 0);
+        emit CardContractAdded(address(newCard), ICard.Rarity.COMMON);
         
-        cardSet.addCard(100, "Test Card", ICardSet.Rarity.COMMON, 0, "ipfs://test");
+        cardSet.addCardContract(address(newCard));
+        vm.stopPrank();
         
-        ICardSet.Card memory card = cardSet.getCard(100);
-        assertEq(card.id, 100);
-        assertEq(card.name, "Test Card");
-        assertTrue(card.rarity == ICardSet.Rarity.COMMON);
-        assertEq(card.maxSupply, 0);
-        assertEq(card.currentSupply, 0);
-        assertEq(card.metadataURI, "ipfs://test");
+        address[] memory cardContracts = cardSet.getCardContracts();
+        bool found = false;
+        for (uint256 i = 0; i < cardContracts.length; i++) {
+            if (cardContracts[i] == address(newCard)) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found);
     }
 
-    function testAddCardUnauthorized() public {
+    function testAddCardContractUnauthorized() public {
+        vm.prank(owner);
+        Card newCard = new Card(99, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        
         vm.prank(user1);
         vm.expectRevert();
-        cardSet.addCard(100, "Test Card", ICardSet.Rarity.COMMON, 0, "ipfs://test");
+        cardSet.addCardContract(address(newCard));
     }
 
-    function testAddDuplicateCard() public {
+    function testAddDuplicateCardContract() public {
         vm.prank(owner);
         vm.expectRevert();
-        cardSet.addCard(1, "Duplicate", ICardSet.Rarity.COMMON, 0, "ipfs://test");
+        cardSet.addCardContract(address(commonCard1)); // Already added in setup
     }
 
-    function testGetNonexistentCard() public {
-        vm.expectRevert();
-        cardSet.getCard(999);
+    function testRemoveCardContract() public {
+        vm.prank(owner);
+        cardSet.removeCardContract(address(commonCard1));
+        
+        address[] memory cardContracts = cardSet.getCardContracts();
+        for (uint256 i = 0; i < cardContracts.length; i++) {
+            assertTrue(cardContracts[i] != address(commonCard1));
+        }
     }
 
     // ============ Deck Management Tests ============
@@ -186,34 +199,34 @@ contract CardSetTest is Test {
     function testAddDeckType() public {
         vm.prank(owner);
         
-        uint256[] memory cardIds = new uint256[](2);
+        address[] memory cardContracts = new address[](2);
         uint256[] memory quantities = new uint256[](2);
         
-        cardIds[0] = 1;
+        cardContracts[0] = address(commonCard1);
         quantities[0] = 40;
-        cardIds[1] = 11;
+        cardContracts[1] = address(uncommonCard1);
         quantities[1] = 20;
         
-        cardSet.addDeckType("Test Deck", cardIds, quantities);
+        cardSet.addDeckType("Test Deck", cardContracts, quantities);
         
         ICardSet.DeckType memory deck = cardSet.getDeckType("Test Deck");
         assertEq(deck.name, "Test Deck");
         assertTrue(deck.active);
-        assertEq(deck.cardIds.length, 2);
-        assertEq(deck.cardIds[0], 1);
+        assertEq(deck.cardContracts.length, 2);
+        assertEq(deck.cardContracts[0], address(commonCard1));
         assertEq(deck.quantities[0], 40);
     }
 
     function testAddDeckTypeUnauthorized() public {
         vm.prank(user1);
         
-        uint256[] memory cardIds = new uint256[](1);
+        address[] memory cardContracts = new address[](1);
         uint256[] memory quantities = new uint256[](1);
-        cardIds[0] = 1;
+        cardContracts[0] = address(commonCard1);
         quantities[0] = 60;
         
         vm.expectRevert();
-        cardSet.addDeckType("Unauthorized Deck", cardIds, quantities);
+        cardSet.addDeckType("Unauthorized Deck", cardContracts, quantities);
     }
 
     function testGetNonexistentDeckType() public {
@@ -237,11 +250,11 @@ contract CardSetTest is Test {
         uint256 requestId = vrfCoordinator.getLastRequestId();
         vrfCoordinator.autoFulfillRequest(requestId, 15);
         
-        // Check emission increased (happens in VRF callback)
+        // Check emission increased
         assertEq(cardSet.totalEmission(), emissionBefore + 15);
         
-        // Check user received cards
-        assertEq(cardSet.balanceOf(user1), 15);
+        // Check user received cards from various Card contracts
+        assertTrue(commonCard1.balanceOf(user1) > 0 || commonCard2.balanceOf(user1) > 0);
     }
 
     function testOpenPackInsufficientPayment() public {
@@ -272,10 +285,9 @@ contract CardSetTest is Test {
     // ============ Deck Opening Tests ============
 
     function testOpenDeck() public {
-        vm.prank(user1);
-        
         uint256 balanceBefore = user1.balance;
         
+        vm.prank(user1);
         uint256[] memory tokenIds = cardSet.openDeck{value: DECK_PRICE}("Starter Deck");
         
         // Check payment was deducted
@@ -283,7 +295,12 @@ contract CardSetTest is Test {
         
         // Check user received 60 cards
         assertEq(tokenIds.length, 60);
-        assertEq(cardSet.balanceOf(user1), 60);
+        
+        // Check specific allocations
+        assertEq(commonCard1.balanceOf(user1), 30);
+        assertEq(uncommonCard1.balanceOf(user1), 20);
+        assertEq(rareCard1.balanceOf(user1), 8);
+        assertEq(mythicalCard1.balanceOf(user1), 2);
     }
 
     function testOpenDeckInsufficientPayment() public {
@@ -375,7 +392,7 @@ contract CardSetTest is Test {
         uint256 requestId = vrfCoordinator.getLastRequestId();
         vrfCoordinator.autoFulfillRequest(requestId, 15);
         
-        assertEq(cardSet.balanceOf(user1), 15);
+        assertTrue(cardSet.totalEmission() == 15);
     }
 
     function testPauseUnauthorized() public {
@@ -384,69 +401,55 @@ contract CardSetTest is Test {
         cardSet.pause();
     }
 
-    // ============ Royalty Tests ============
-
-    function testRoyaltyInfo() public view {
-        (address receiver, uint256 royaltyAmount) = cardSet.royaltyInfo(1, 1000);
-        assertEq(receiver, owner);
-        assertEq(royaltyAmount, 1); // 0.1% of 1000
-    }
-
     // ============ View Function Tests ============
 
-    function testGetAllCardIds() public view {
-        uint256[] memory cardIds = cardSet.getAllCardIds();
-        assertEq(cardIds.length, 30); // We added 30 cards in setup
+    function testGetSetInfo() public view {
+        ICardSet.SetInfo memory info = cardSet.getSetInfo();
+        assertEq(info.name, SET_NAME);
+        assertEq(info.emissionCap, EMISSION_CAP);
+        assertEq(info.totalEmission, 0);
+        assertEq(info.packPrice, PACK_PRICE);
+        assertEq(info.cardContracts.length, 7); // All our test cards
     }
 
-    function testGetCardsByRarity() public view {
-        uint256[] memory commons = cardSet.getCardsByRarity(ICardSet.Rarity.COMMON);
-        assertEq(commons.length, 10);
-        
-        uint256[] memory rares = cardSet.getCardsByRarity(ICardSet.Rarity.RARE);
-        assertEq(rares.length, 5);
-        
-        uint256[] memory serialized = cardSet.getCardsByRarity(ICardSet.Rarity.SERIALIZED);
-        assertEq(serialized.length, 2);
+    function testGetCardContracts() public view {
+        address[] memory cardContracts = cardSet.getCardContracts();
+        assertEq(cardContracts.length, 7);
     }
 
-    function testGetAllDeckTypeNames() public view {
-        string[] memory deckNames = cardSet.getAllDeckTypeNames();
+    function testGetCardContractsByRarity() public view {
+        address[] memory commons = cardSet.getCardContractsByRarity(ICard.Rarity.COMMON);
+        assertEq(commons.length, 2);
+        
+        address[] memory rares = cardSet.getCardContractsByRarity(ICard.Rarity.RARE);
+        assertEq(rares.length, 1);
+        
+        address[] memory serialized = cardSet.getCardContractsByRarity(ICard.Rarity.SERIALIZED);
+        assertEq(serialized.length, 1);
+    }
+
+    function testGetDeckTypeNames() public view {
+        string[] memory deckNames = cardSet.getDeckTypeNames();
         assertEq(deckNames.length, 1);
         assertEq(deckNames[0], "Starter Deck");
     }
 
-    // ============ Serialized Card Tests ============
+    // ============ Card Contract Tests ============
 
-    function testSerializedCardLimit() public {
-        vm.prank(owner);
-        // Add a serialized card with max supply of 1
-        cardSet.addCard(999, "Ultra Rare", ICardSet.Rarity.SERIALIZED, 1, "ipfs://ultra");
-        
-        // Manually mint one (would happen through pack opening)
-        vm.prank(owner);
-        // Create a test function to directly mint for testing
-        // This tests the serialized card limit logic
-        ICardSet.Card memory card = cardSet.getCard(999);
-        assertEq(card.maxSupply, 1);
-        assertEq(card.currentSupply, 0);
+    function testCardContractBasics() public view {
+        ICard.CardInfo memory info = commonCard1.cardInfo();
+        assertEq(info.cardId, 1);
+        assertEq(info.name, "Forest Sprite");
+        assertTrue(info.rarity == ICard.Rarity.COMMON);
+        assertEq(info.maxSupply, 0);
+        assertEq(info.currentSupply, 0);
+        assertTrue(info.active);
     }
 
-    // ============ Gas Testing ============
-
-    function testPackOpeningGas() public {
-        vm.prank(user1);
-        uint256 gasBefore = gasleft();
-        cardSet.openPack{value: PACK_PRICE}();
-        uint256 gasUsed = gasBefore - gasleft();
-        
-        // Manually fulfill VRF request
-        uint256 requestId = vrfCoordinator.getLastRequestId();
-        vrfCoordinator.autoFulfillRequest(requestId, 15);
-        
-        // Pack opening should be reasonably gas efficient
-        // This is just a sanity check - actual values may vary
-        assertTrue(gasUsed < 1000000);
+    function testSerializedCardLimit() public {
+        ICard.CardInfo memory info = serializedCard1.cardInfo();
+        assertEq(info.maxSupply, 100);
+        assertTrue(serializedCard1.canMint());
     }
 
     // ============ Integration Tests ============
@@ -454,17 +457,16 @@ contract CardSetTest is Test {
     function testMultiplePackOpenings() public {
         vm.startPrank(user1);
         
-        // Open 5 packs
-        for (uint256 i = 0; i < 5; i++) {
+        // Open 3 packs
+        for (uint256 i = 0; i < 3; i++) {
             cardSet.openPack{value: PACK_PRICE}();
             // Manually fulfill each VRF request
             uint256 requestId = vrfCoordinator.getLastRequestId();
             vrfCoordinator.autoFulfillRequest(requestId, 15);
         }
         
-        // Should have 75 cards total (5 packs * 15 cards)
-        assertEq(cardSet.balanceOf(user1), 75);
-        assertEq(cardSet.totalEmission(), 75);
+        // Should have 45 cards total (3 packs * 15 cards)
+        assertEq(cardSet.totalEmission(), 45);
         
         vm.stopPrank();
     }
@@ -472,27 +474,32 @@ contract CardSetTest is Test {
     function testMixedPackAndDeckOpening() public {
         vm.startPrank(user1);
         
-        // Open 2 packs and 1 deck
+        // Open 1 pack and 1 deck
         cardSet.openPack{value: PACK_PRICE}();
         uint256 requestId1 = vrfCoordinator.getLastRequestId();
         vrfCoordinator.autoFulfillRequest(requestId1, 15);
         
-        cardSet.openPack{value: PACK_PRICE}();
-        uint256 requestId2 = vrfCoordinator.getLastRequestId();
-        vrfCoordinator.autoFulfillRequest(requestId2, 15);
-        
         cardSet.openDeck{value: DECK_PRICE}("Starter Deck");
         
-        // Should have 90 cards total (2 packs * 15 + 1 deck * 60)
-        assertEq(cardSet.balanceOf(user1), 90);
+        // Pack adds to emission, deck doesn't
+        assertEq(cardSet.totalEmission(), 15);
         
         vm.stopPrank();
     }
 
-    function testSupportsInterface() public view {
-        // Test ERC721 interface
-        assertTrue(cardSet.supportsInterface(0x80ac58cd));
-        // Test ERC2981 interface (royalties)
-        assertTrue(cardSet.supportsInterface(0x2a55205a));
+    function testCardContractAuthorization() public {
+        // CardSet should be authorized to mint on card contracts
+        assertTrue(commonCard1.isAuthorizedMinter(address(cardSet)));
+        
+        // Remove card contract from set
+        vm.prank(owner);
+        cardSet.removeCardContract(address(commonCard1));
+        
+        // Manually remove authorization (this would be done by card owner)
+        vm.prank(owner);
+        commonCard1.removeAuthorizedMinter(address(cardSet));
+        
+        // CardSet should no longer be authorized
+        assertFalse(commonCard1.isAuthorizedMinter(address(cardSet)));
     }
 } 

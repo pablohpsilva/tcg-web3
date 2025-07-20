@@ -347,7 +347,7 @@ contract Card is
     function supportsInterface(bytes4 interfaceId) 
         public 
         view 
-        override(ERC721, ERC721URIStorage, ERC721Royalty, IERC165) 
+        override(ERC721, ERC721URIStorage, ERC721Royalty) 
         returns (bool) 
     {
         return super.supportsInterface(interfaceId);
