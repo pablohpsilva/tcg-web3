@@ -254,7 +254,7 @@ contract CardSetTest is Test {
         assertEq(cardSet.totalEmission(), emissionBefore + 15);
         
         // Check user received cards from various Card contracts
-        assertTrue(commonCard1.balanceOf(user1) > 0 || commonCard2.balanceOf(user1) > 0);
+        assertTrue(commonCard1.balanceOf(user1, 1) > 0 || commonCard2.balanceOf(user1, 2) > 0);
     }
 
     function testOpenPackInsufficientPayment() public {
@@ -312,10 +312,10 @@ contract CardSetTest is Test {
         assertEq(tokenIds.length, 60);
         
         // Check specific allocations
-        assertEq(commonCard1.balanceOf(user1), 30);
-        assertEq(uncommonCard1.balanceOf(user1), 20);
-        assertEq(rareCard1.balanceOf(user1), 8);
-        assertEq(mythicalCard1.balanceOf(user1), 2);
+        assertEq(commonCard1.balanceOf(user1, 1), 30);
+        assertEq(uncommonCard1.balanceOf(user1, 11), 20);
+        assertEq(rareCard1.balanceOf(user1, 21), 8);
+        assertEq(mythicalCard1.balanceOf(user1, 31), 2);
     }
 
     function testOpenDeckInsufficientPayment() public {

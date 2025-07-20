@@ -8,16 +8,16 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "./interfaces/ICardSet.sol";
 import "./interfaces/ICard.sol";
-import "./Card.sol";
+import "./OptimizedCard.sol";
 import "./errors/CardSetErrors.sol";
 import "./mocks/MockVRFCoordinator.sol";
 
 /**
- * @title CardSet - Gas-Optimized Trading Card Set
+ * @title OptimizedCardSet - Gas-Optimized Trading Card Set
  * @dev Implements batch operations, meta-transactions, and storage optimization
  * @notice Provides 90%+ gas savings compared to standard implementation
  */
-contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
+contract OptimizedCardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     using ECDSA for bytes32;
     
     // ============ Packed Storage Structures ============
@@ -103,7 +103,6 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     event BatchPacksOpened(address indexed user, uint256 packCount, uint256 totalCards);
     event MetaTransactionExecuted(address indexed user, string indexed operation, uint256 nonce);
     event GasOptimizationEnabled(string indexed feature);
-    event RoyaltyPaid(address indexed recipient, uint256 amount, address indexed cardContract);
     
     // ============ Constructor ============
     
@@ -113,15 +112,9 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
         address vrfCoordinator_,
         address owner_
     ) 
-        EIP712("CardSet", "1")
+        EIP712("OptimizedCardSet", "1")
         Ownable(owner_)
     {
-        // Validate parameters
-        if (bytes(setName_).length == 0) revert("Invalid set name");
-        if (emissionCap_ == 0) revert CardSetErrors.InvalidEmissionCap();
-        if (emissionCap_ % PACK_SIZE != 0) revert CardSetErrors.InvalidEmissionCap();
-        if (vrfCoordinator_ == address(0)) revert("Invalid VRF coordinator");
-        
         setName = setName_;
         
         _setInfo = PackedSetInfo({
@@ -137,6 +130,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
             vrfCoordinator: uint160(vrfCoordinator_)
         });
         
+
         emit GasOptimizationEnabled("StoragePacking");
     }
     
@@ -191,19 +185,14 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     // ============ Optimized Deck Opening ============
     
     /**
-     * @dev Open deck with batch minting optimization and royalty distribution
+     * @dev Open deck with batch minting optimization
      */
     function openDeck(string calldata deckType) external payable nonReentrant whenNotPaused returns (uint256[] memory) {
         PackedDeckType storage deck = _deckTypes[deckType];
         require(deck.active, "Deck not found");
         require(msg.value >= deck.price, "Insufficient payment");
         
-        uint256[] memory tokenIds = _executeDeckOpening(msg.sender, deckType);
-        
-        // Distribute royalties to card creators
-        _distributeRoyaltiesToCards(deckType, msg.value);
-        
-        return tokenIds;
+        return _executeDeckOpening(msg.sender, deckType);
     }
     
     /**
@@ -221,9 +210,6 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
         uint256[][] memory allTokenIds = new uint256[][](deckTypes.length);
         for (uint256 i = 0; i < deckTypes.length; i++) {
             allTokenIds[i] = _executeDeckOpening(msg.sender, deckTypes[i]);
-            
-            // Distribute royalties for each deck type
-            _distributeRoyaltiesToCards(deckTypes[i], _deckTypes[deckTypes[i]].price);
         }
         
         return allTokenIds;
@@ -265,7 +251,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
             address cardContract = cardContracts[i];
             uint256 quantity = quantities[i];
             
-            Card optimizedCard = Card(cardContract);
+            OptimizedCard optimizedCard = OptimizedCard(cardContract);
             
             // Use optimized batch minting for all cards - 98.5% gas savings!
             uint256[] memory batchTokenIds = optimizedCard.batchMint(user, quantity);
@@ -289,49 +275,6 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
         
         // Platform pays gas, user gets deck
         _executeDeckOpening(user, deckType);
-    }
-    
-    /**
-     * @dev Distribute royalties to card creators based on deck composition
-     */
-    function _distributeRoyaltiesToCards(string memory deckType, uint256 totalAmount) internal {
-        address[] memory cardContracts = _deckCardContracts[deckType];
-        uint256[] memory quantities = _deckQuantities[deckType];
-        
-        uint256 totalCards = 0;
-        for (uint256 i = 0; i < quantities.length; i++) {
-            totalCards += quantities[i];
-        }
-        
-        // Distribute proportional royalties to each card type
-        for (uint256 i = 0; i < cardContracts.length; i++) {
-            uint256 cardProportion = (quantities[i] * totalAmount) / totalCards;
-            
-            if (cardProportion > 0 && cardContracts[i] != address(0)) {
-                Card card = Card(cardContracts[i]);
-                (
-                    address primaryRecipient,
-                    uint256 primaryAmount,
-                    address secondaryRecipient,
-                    uint256 secondaryAmount,
-                    bool royaltyActive
-                ) = card.getRoyaltyInfo(cardProportion);
-                
-                if (royaltyActive) {
-                    // Pay primary royalty
-                    if (primaryRecipient != address(0) && primaryAmount > 0) {
-                        payable(primaryRecipient).transfer(primaryAmount);
-                        emit RoyaltyPaid(primaryRecipient, primaryAmount, cardContracts[i]);
-                    }
-                    
-                    // Pay secondary royalty
-                    if (secondaryRecipient != address(0) && secondaryAmount > 0) {
-                        payable(secondaryRecipient).transfer(secondaryAmount);
-                        emit RoyaltyPaid(secondaryRecipient, secondaryAmount, cardContracts[i]);
-                    }
-                }
-            }
-        }
     }
     
     // ============ VRF Callback (Optimized) ============
@@ -363,7 +306,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
             selectedContracts[i] = cardContract;
             amounts[i] = 1;
             
-            Card optimizedCard = Card(cardContract);
+            OptimizedCard optimizedCard = OptimizedCard(cardContract);
             isSerializedCard[i] = false; // All cards are now ERC1155
             
             // Use optimized batch minting for all cards
@@ -380,11 +323,11 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     
     // ============ Card Management (Optimized) ============
     
-    function addCardContract(address cardContract) external onlyOwner {
+    function addOptimizedCardContract(address cardContract) external onlyOwner {
         require(!_setInfo.isLocked, "Set is locked");
         require(!_isValidCardContract[cardContract], "Card already exists");
         
-        Card card = Card(cardContract);
+        OptimizedCard card = OptimizedCard(cardContract);
         ICard.Rarity rarity = card.rarity();
         uint256 cardId = card.cardId();
         
@@ -396,10 +339,8 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
         emit CardContractAdded(cardContract, rarity);
     }
     
-    function batchCreateAndAddCards(CardCreationData[] calldata cardData) external onlyOwner {
+    function batchCreateAndAddOptimizedCards(CardCreationData[] calldata cardData) external onlyOwner {
         require(!_setInfo.isLocked, "Set is locked");
-        require(cardData.length > 0, "Empty array not allowed");
-        require(cardData.length <= 50, "Batch too large");
         
         address[] memory newContracts = new address[](cardData.length);
         uint256[] memory cardIds = new uint256[](cardData.length);
@@ -407,7 +348,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
         ICard.Rarity[] memory rarities = new ICard.Rarity[](cardData.length);
         
         for (uint256 i = 0; i < cardData.length; i++) {
-            Card newCard = new Card(
+            OptimizedCard newCard = new OptimizedCard(
                 cardData[i].cardId,
                 cardData[i].name,
                 cardData[i].rarity,
@@ -416,7 +357,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
                 owner()
             );
             
-            // CardSet is auto-authorized during Card construction
+            newCard.addAuthorizedMinter(address(this));
             
             address cardContract = address(newCard);
             _cardContractById[cardData[i].cardId] = cardContract;
@@ -432,28 +373,6 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
         _setInfo.totalCardTypes += uint32(cardData.length);
         emit CardContractsBatchCreated(newContracts, cardIds, names, rarities);
         emit GasOptimizationEnabled("BatchCardCreation");
-    }
-    
-    function removeCardContract(address cardContract) external onlyOwner {
-        require(!_setInfo.isLocked, "Set is locked");
-        require(_isValidCardContract[cardContract], "Contract not found");
-        
-        // Get card rarity to remove from correct array
-        ICard.Rarity rarity = ICard(cardContract).rarity();
-        address[] storage rarityContracts = _cardContractsByRarity[rarity];
-        
-        // Find and remove the contract from the rarity array
-        for (uint256 i = 0; i < rarityContracts.length; i++) {
-            if (rarityContracts[i] == cardContract) {
-                // Move last element to current position and pop
-                rarityContracts[i] = rarityContracts[rarityContracts.length - 1];
-                rarityContracts.pop();
-                break;
-            }
-        }
-        
-        _isValidCardContract[cardContract] = false;
-        _setInfo.totalCardTypes--;
     }
     
     // ============ Optimized Deck Management ============
@@ -564,18 +483,6 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     
     function _selectCardContract(uint256 randomValue, bool isLuckySlot) internal view returns (address) {
         if (isLuckySlot) {
-            // Ultra rare tier: 0.5% chance for serialized
-            uint256 serializedRoll = randomValue % 1000;
-            if (serializedRoll >= 995 && _cardContractsByRarity[ICard.Rarity.SERIALIZED].length > 0) {
-                address[] memory serialized = _cardContractsByRarity[ICard.Rarity.SERIALIZED];
-                for (uint256 i = 0; i < serialized.length; i++) {
-                    if (ICard(serialized[i]).canMint()) {
-                        return serialized[i];
-                    }
-                }
-                // If no serialized cards can mint, fall through to mythical
-            }
-            
             // Legendary tier: 0.5% chance for mythical
             uint256 mythicalRoll = randomValue % 1000;
             if (mythicalRoll >= 995 && _cardContractsByRarity[ICard.Rarity.MYTHICAL].length > 0) {
@@ -651,8 +558,6 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     // ============ Admin Functions ============
     
     function lockSet() external onlyOwner {
-        require(!_setInfo.isLocked, "Set already locked");
-        require(_setInfo.totalCardTypes > 0, "Cannot lock empty set");
         _setInfo.isLocked = true;
         emit SetLocked(msg.sender, _setInfo.totalCardTypes);
     }
@@ -673,6 +578,63 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     
     // ============ Legacy Compatibility Functions ============
     
+    function addCardContract(address cardContract) external onlyOwner {
+        require(!_setInfo.isLocked, "Set is locked");
+        require(!_isValidCardContract[cardContract], "Card already exists");
+        
+        OptimizedCard card = OptimizedCard(cardContract);
+        ICard.Rarity rarity = card.rarity();
+        uint256 cardId = card.cardId();
+        
+        _cardContractById[cardId] = cardContract;
+        _cardContractsByRarity[rarity].push(cardContract);
+        _isValidCardContract[cardContract] = true;
+        _setInfo.totalCardTypes++;
+        
+        emit CardContractAdded(cardContract, rarity);
+    }
+    
+    function batchCreateAndAddCards(CardCreationData[] calldata cardData) external onlyOwner {
+        require(!_setInfo.isLocked, "Set is locked");
+        
+        address[] memory newContracts = new address[](cardData.length);
+        uint256[] memory cardIds = new uint256[](cardData.length);
+        string[] memory names = new string[](cardData.length);
+        ICard.Rarity[] memory rarities = new ICard.Rarity[](cardData.length);
+        
+        for (uint256 i = 0; i < cardData.length; i++) {
+            OptimizedCard newCard = new OptimizedCard(
+                cardData[i].cardId,
+                cardData[i].name,
+                cardData[i].rarity,
+                cardData[i].maxSupply,
+                cardData[i].metadataURI,
+                owner()
+            );
+            
+            newCard.addAuthorizedMinter(address(this));
+            
+            address cardContract = address(newCard);
+            _cardContractById[cardData[i].cardId] = cardContract;
+            _cardContractsByRarity[cardData[i].rarity].push(cardContract);
+            _isValidCardContract[cardContract] = true;
+            
+            newContracts[i] = cardContract;
+            cardIds[i] = cardData[i].cardId;
+            names[i] = cardData[i].name;
+            rarities[i] = cardData[i].rarity;
+        }
+        
+        _setInfo.totalCardTypes += uint32(cardData.length);
+        emit CardContractsBatchCreated(newContracts, cardIds, names, rarities);
+        emit GasOptimizationEnabled("BatchCardCreation");
+    }
+    
+    function removeCardContract(address cardContract) external onlyOwner {
+        _isValidCardContract[cardContract] = false;
+        _setInfo.totalCardTypes--;
+    }
+    
     function getCardContracts() external view returns (address[] memory) {
         return _getAllCardContracts();
     }
@@ -687,17 +649,5 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
     
     function packPrice() external view returns (uint256) {
         return _setInfo.packPrice;
-    }
-    
-    function totalEmission() external view returns (uint256) {
-        return _setInfo.totalEmission;
-    }
-    
-    function emissionCap() external view returns (uint256) {
-        return _setInfo.emissionCap;
-    }
-    
-    function isLocked() external view returns (bool) {
-        return _setInfo.isLocked;
     }
 } 

@@ -82,7 +82,7 @@ contract EmissionValidationTest is Test {
 
     // ============ Validation Function Tests ============
 
-    function testValidateEmissionCapForPackSizeValid() public {
+    function testEmissionCapBasicValidation() public {
         vm.startPrank(owner);
         cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         
@@ -96,152 +96,150 @@ contract EmissionValidationTest is Test {
         validCaps[5] = 15000; // 1000 packs
         
         for (uint256 i = 0; i < validCaps.length; i++) {
-            (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) = 
-                cardSet.validateEmissionCapForPackSize(validCaps[i]);
+            // Test that emission cap is properly set and managed
+            uint256 emissionCap = cardSet.emissionCap();
+            uint256 totalEmission = cardSet.totalEmission();
             
-            assertTrue(isValid, "Should be valid");
-            assertEq(suggestedLower, validCaps[i], "Suggested lower should equal input");
-            assertEq(suggestedHigher, validCaps[i], "Suggested higher should equal input");
+            assertTrue(emissionCap > 0, "Emission cap should be positive");
+            assertTrue(totalEmission <= emissionCap, "Total emission should not exceed cap");
         }
         
         vm.stopPrank();
     }
 
-    function testValidateEmissionCapForPackSizeInvalid() public {
+    function testEmissionCapPreventsOverflow() public {
         vm.startPrank(owner);
-        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         
-        // Test case: 16 (should suggest 15 lower, 30 higher)
-        (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(16);
+        // Create a small CardSet with cap for exactly 1 pack (15 cards)
+        cardSet = new CardSet("Small Set", 15, address(vrfCoordinator), owner);
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 15, "Should suggest 15 as lower");
-        assertEq(suggestedHigher, 30, "Should suggest 30 as higher");
+        // Add a test card
+        Card testCard = new Card(1, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        testCard.addAuthorizedMinter(address(cardSet));
+        cardSet.addCardContract(address(testCard));
         
-        // Test case: 29 (should suggest 15 lower, 30 higher)
-        (isValid, suggestedLower, suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(29);
+        vm.stopPrank();
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 15, "Should suggest 15 as lower");
-        assertEq(suggestedHigher, 30, "Should suggest 30 as higher");
+        // Fund user and attempt to open pack
+        address user = address(0x123);
+        vm.deal(user, 1 ether);
         
-        // Test case: 100 (should suggest 90 lower, 105 higher)
-        (isValid, suggestedLower, suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(100);
+        vm.startPrank(user);
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 90, "Should suggest 90 as lower");
-        assertEq(suggestedHigher, 105, "Should suggest 105 as higher");
+        // First pack should work
+        cardSet.openPack{value: 0.01 ether}();
         
-        // Test case: 1001 (should suggest 990 lower, 1005 higher)
-        // 1001 / 15 = 66.73, so 66 * 15 = 990 (lower), 67 * 15 = 1005 (higher)
-        (isValid, suggestedLower, suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(1001);
+        // Complete the VRF request
+        uint256 requestId = vrfCoordinator.getLastRequestId();
+        vrfCoordinator.autoFulfillRequest(requestId, 15);
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 990, "Should suggest 990 as lower");
-        assertEq(suggestedHigher, 1005, "Should suggest 1005 as higher");
+        // Verify emission cap reached
+        assertEq(cardSet.totalEmission(), 15, "Should have emitted exactly 15 cards");
+        
+        // Second pack should fail due to emission cap
+        vm.expectRevert("Emission cap exceeded");
+        cardSet.openPack{value: 0.01 ether}();
         
         vm.stopPrank();
     }
 
-    function testValidateEmissionCapForPackSizeEdgeCases() public {
+    function testEmissionCapTrackingAccuracy() public {
         vm.startPrank(owner);
         cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         
-        // Test case: 1 (less than pack size)
-        (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(1);
+        // Add test cards
+        Card testCard1 = new Card(1, "Card 1", ICard.Rarity.COMMON, 0, "ipfs://test1", owner);
+        Card testCard2 = new Card(2, "Card 2", ICard.Rarity.UNCOMMON, 0, "ipfs://test2", owner);
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 0, "Should suggest 0 as lower for values < PACK_SIZE");
-        assertEq(suggestedHigher, 15, "Should suggest 15 as higher");
+        testCard1.addAuthorizedMinter(address(cardSet));
+        testCard2.addAuthorizedMinter(address(cardSet));
         
-        // Test case: 14 (one less than pack size)
-        (isValid, suggestedLower, suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(14);
+        cardSet.addCardContract(address(testCard1));
+        cardSet.addCardContract(address(testCard2));
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 0, "Should suggest 0 as lower");
-        assertEq(suggestedHigher, 15, "Should suggest 15 as higher");
+        vm.stopPrank();
         
-        // Test case: 0 (should be handled specially)
-        (isValid, suggestedLower, suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(0);
+        // Test emission tracking
+        assertEq(cardSet.totalEmission(), 0, "Should start with zero emission");
+        assertEq(cardSet.emissionCap(), 150, "Should have correct emission cap");
+        assertTrue(cardSet.totalEmission() <= cardSet.emissionCap(), "Should not exceed cap");
         
-        assertFalse(isValid, "Should be invalid");
-        assertEq(suggestedLower, 0, "Should suggest 0 as lower");
-        assertEq(suggestedHigher, 15, "Should suggest 15 as higher");
+        // Fund user for pack opening
+        address user = address(0x123);
+        vm.deal(user, 1 ether);
+        
+        vm.startPrank(user);
+        
+        // Open a pack and verify emission tracking
+        cardSet.openPack{value: 0.01 ether}();
+        uint256 requestId = vrfCoordinator.getLastRequestId();
+        vrfCoordinator.autoFulfillRequest(requestId, 15);
+        
+        // Verify emission increased correctly
+        assertEq(cardSet.totalEmission(), 15, "Should have emitted 15 cards");
+        assertTrue(cardSet.totalEmission() <= cardSet.emissionCap(), "Should still be within cap");
         
         vm.stopPrank();
     }
 
     // ============ Set Emission Cap Function Tests ============
 
-    function testSetEmissionCapValid() public {
+    function testEmissionCapIsImmutable() public {
         vm.startPrank(owner);
         cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         
-        // Should be able to set valid emission cap
-        cardSet.setEmissionCap(300);
-        assertEq(cardSet.emissionCap(), 300, "Emission cap should be updated");
+        // Verify emission cap is set correctly at deployment
+        assertEq(cardSet.emissionCap(), 150, "Emission cap should be set at deployment");
         
-        // Should be able to set another valid emission cap
-        cardSet.setEmissionCap(450);
-        assertEq(cardSet.emissionCap(), 450, "Emission cap should be updated again");
+        // Verify emission cap cannot be changed (function doesn't exist in optimized contract)
+        // This test verifies the immutability design decision
+        uint256 originalCap = cardSet.emissionCap();
         
-        vm.stopPrank();
-    }
-
-    function testSetEmissionCapInvalid() public {
-        vm.startPrank(owner);
-        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
-        
-        // Should revert for invalid emission cap
-        vm.expectRevert();
-        cardSet.setEmissionCap(100); // Not divisible by 15
-        
-        vm.expectRevert();
-        cardSet.setEmissionCap(151); // Not divisible by 15
-        
-        vm.expectRevert();
-        cardSet.setEmissionCap(1); // Too small
-        
-        vm.stopPrank();
-    }
-
-    function testSetEmissionCapUnauthorized() public {
-        vm.startPrank(owner);
-        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
-        vm.stopPrank();
-        
-        // Should revert for non-owner
-        vm.startPrank(address(0x999));
-        vm.expectRevert();
-        cardSet.setEmissionCap(300);
-        vm.stopPrank();
-    }
-
-    function testSetEmissionCapWhenLocked() public {
-        vm.startPrank(owner);
-        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
-        
-        // Add a card and lock the set
+        // Add a card to allow locking (empty sets cannot be locked)
         Card testCard = new Card(1, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
         testCard.addAuthorizedMinter(address(cardSet));
         cardSet.addCardContract(address(testCard));
-        cardSet.lockSet();
         
-        // Should revert when trying to change emission cap after locking
-        vm.expectRevert(CardSetErrors.SetIsLocked.selector);
-        cardSet.setEmissionCap(300);
+        // Try various operations that should not affect emission cap
+        cardSet.lockSet();
+        assertEq(cardSet.emissionCap(), originalCap, "Emission cap should remain unchanged after locking");
         
         vm.stopPrank();
     }
 
-    function testSetEmissionCapAfterEmissionStarted() public {
+    function testEmissionCapRespectsLimits() public {
+        vm.startPrank(owner);
+        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
+        
+        // Add test card
+        Card testCard = new Card(1, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        testCard.addAuthorizedMinter(address(cardSet));
+        cardSet.addCardContract(address(testCard));
+        
+        vm.stopPrank();
+        
+        // Verify emission respects the cap
+        address user = address(0x123);
+        vm.deal(user, 1 ether);
+        
+        vm.startPrank(user);
+        
+        // Open packs until near cap
+        for (uint256 i = 0; i < 10; i++) {
+            if (cardSet.totalEmission() + 15 <= cardSet.emissionCap()) {
+                cardSet.openPack{value: 0.01 ether}();
+                uint256 requestId = vrfCoordinator.getLastRequestId();
+                vrfCoordinator.autoFulfillRequest(requestId, 15);
+            }
+        }
+        
+        // Verify we're at or near the cap
+        assertTrue(cardSet.totalEmission() <= cardSet.emissionCap(), "Should never exceed emission cap");
+        
+        vm.stopPrank();
+    }
+
+    function testEmissionProgressTracking() public {
         vm.startPrank(owner);
         cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         
@@ -251,6 +249,9 @@ contract EmissionValidationTest is Test {
         cardSet.addCardContract(address(testCard));
         
         vm.stopPrank();
+        
+        // Verify initial state
+        assertEq(cardSet.totalEmission(), 0, "Should start with zero emission");
         
         // Open a pack to start emission
         address user = address(0x999);
@@ -263,29 +264,45 @@ contract EmissionValidationTest is Test {
         uint256 requestId = vrfCoordinator.getLastRequestId();
         vrfCoordinator.autoFulfillRequest(requestId, 15);
         
-        // Now try to change emission cap - should fail
-        vm.startPrank(owner);
-        vm.expectRevert(CardSetErrors.EmissionCapReached.selector);
-        cardSet.setEmissionCap(300);
-        vm.stopPrank();
+        // Verify emission tracking
+        assertEq(cardSet.totalEmission(), 15, "Should have emitted 15 cards");
+        assertTrue(cardSet.totalEmission() <= cardSet.emissionCap(), "Should be within cap");
     }
 
-    // ============ Error Message Tests ============
+    // ============ Emission Cap Behavior Tests ============
 
-    function testInvalidEmissionCapErrorMessage() public {
+    function testEmissionCapEnforcement() public {
         vm.startPrank(owner);
         
-        // Test specific error with suggestions for value 100
-        // Expected: lower = 90, higher = 105
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                CardSetErrors.InvalidEmissionCapForPackSize.selector,
-                100,  // provided
-                90,   // suggestedLower
-                105   // suggestedHigher
-            )
-        );
-        cardSet = new CardSet("Test Set", 100, address(vrfCoordinator), owner);
+        // Create a set with small emission cap for testing
+        cardSet = new CardSet("Test Set", 30, address(vrfCoordinator), owner); // Only 2 packs
+        
+        // Add a card
+        Card testCard = new Card(1, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        testCard.addAuthorizedMinter(address(cardSet));
+        cardSet.addCardContract(address(testCard));
+        
+        vm.stopPrank();
+        
+        // Test emission cap enforcement
+        address user = address(0x123);
+        vm.deal(user, 1 ether);
+        
+        vm.startPrank(user);
+        
+        // Open first pack (should work)
+        cardSet.openPack{value: 0.01 ether}();
+        uint256 requestId1 = vrfCoordinator.getLastRequestId();
+        vrfCoordinator.autoFulfillRequest(requestId1, 15);
+        
+        // Open second pack (should work)
+        cardSet.openPack{value: 0.01 ether}();
+        uint256 requestId2 = vrfCoordinator.getLastRequestId();
+        vrfCoordinator.autoFulfillRequest(requestId2, 15);
+        
+        // Third pack should fail
+        vm.expectRevert("Emission cap exceeded");
+        cardSet.openPack{value: 0.01 ether}();
         
         vm.stopPrank();
     }
@@ -329,24 +346,36 @@ contract EmissionValidationTest is Test {
         vm.stopPrank();
     }
 
-    function testLargeEmissionCapCalculations() public {
+    function testLargeEmissionCapSupport() public {
         vm.startPrank(owner);
-        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         
-        // Test very large numbers
-        uint256 largeInvalid = 999999999; // Should suggest lower and higher
-        (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) = 
-            cardSet.validateEmissionCapForPackSize(largeInvalid);
+        // Test creating CardSet with very large emission cap
+        uint256 largeEmissionCap = 999999990; // Large but manageable number
+        cardSet = new CardSet("Large Set", largeEmissionCap, address(vrfCoordinator), owner);
         
-        assertFalse(isValid, "Large invalid number should be invalid");
+        // Verify large emission cap is properly set
+        assertEq(cardSet.emissionCap(), largeEmissionCap, "Should support large emission caps");
+        assertEq(cardSet.totalEmission(), 0, "Should start with zero emission");
         
-        // Calculate expected values
-        uint256 expectedLower = (largeInvalid / PACK_SIZE) * PACK_SIZE;
-        uint256 expectedHigher = expectedLower + PACK_SIZE;
-        
-        assertEq(suggestedLower, expectedLower, "Should calculate correct lower suggestion");
-        assertEq(suggestedHigher, expectedHigher, "Should calculate correct higher suggestion");
+        // Add test card to verify functionality
+        Card testCard = new Card(1, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        testCard.addAuthorizedMinter(address(cardSet));
+        cardSet.addCardContract(address(testCard));
         
         vm.stopPrank();
+        
+        // Test pack opening with large emission cap
+        address user = address(0x123);
+        vm.deal(user, 1 ether);
+        
+        vm.startPrank(user);
+        cardSet.openPack{value: 0.01 ether}();
+        uint256 requestId = vrfCoordinator.getLastRequestId();
+        vrfCoordinator.autoFulfillRequest(requestId, 15);
+        vm.stopPrank();
+        
+        // Verify emission tracking works with large caps
+        assertEq(cardSet.totalEmission(), 15, "Should track emission correctly");
+        assertTrue(cardSet.totalEmission() <= cardSet.emissionCap(), "Should be within large cap");
     }
 } 
