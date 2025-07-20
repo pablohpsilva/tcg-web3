@@ -1,0 +1,28 @@
+{
+  "name": "@tcg-magic/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "test:verbose": "forge test -vvv",
+    "test:gas": "forge test --gas-report",
+    "clean": "forge clean",
+    "deploy:local": "forge script script/DeployCardSet.s.sol --rpc-url http://localhost:8545 --broadcast",
+    "deploy:sepolia": "forge script script/DeployCardSet.s.sol:DeployWithChainlinkVRF --rpc-url $SEPOLIA_RPC_URL --broadcast --verify",
+    "deploy:mainnet": "forge script script/DeployCardSet.s.sol:DeployWithChainlinkVRF --rpc-url $MAINNET_RPC_URL --broadcast --verify",
+    "setup:cards": "forge script script/SetupCardSet.s.sol --rpc-url $RPC_URL --broadcast",
+    "lint": "echo 'Linting contracts...'",
+    "dev": "forge test --watch",
+    "coverage": "forge coverage"
+  },
+  "description": "Smart contracts for a blockchain-based trading card game with on-chain pack opening, rarity control, and NFT trading.",
+  "keywords": [
+    "solidity",
+    "trading-cards",
+    "nft",
+    "blockchain",
+    "foundry",
+    "chainlink-vrf"
+  ]
+}

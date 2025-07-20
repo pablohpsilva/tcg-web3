@@ -1,66 +1,123 @@
-## Foundry
+# TCG Magic - Turborepo Monorepo
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+A modern monorepo for trading card game smart contracts and applications, built with [Turborepo](https://turbo.build/) and [Foundry](https://getfoundry.sh/).
 
-Foundry consists of:
+## 🏗️ What's Inside?
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+This Turborepo includes the following packages/apps:
 
-## Documentation
+### Apps
 
-https://book.getfoundry.sh/
+- `apps/contracts`: Smart contracts built with Foundry
 
-## Usage
+### Packages
 
-### Build
+- `packages/*`: Shared packages (coming soon)
 
-```shell
-$ forge build
+## 🚀 Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (v18 or higher)
+- [Foundry](https://getfoundry.sh/) for smart contract development
+
+### Installation
+
+```bash
+npm install
 ```
 
-### Test
+### Development Commands
 
-```shell
-$ forge test
+#### Build
+
+Build all apps and packages:
+
+```bash
+npm run build
 ```
 
-### Format
+#### Test
 
-```shell
-$ forge fmt
+Run tests across all packages:
+
+```bash
+npm run test
 ```
 
-### Gas Snapshots
+#### Development
 
-```shell
-$ forge snapshot
+Start development mode:
+
+```bash
+npm run dev
 ```
 
-### Anvil
+#### Linting
 
-```shell
-$ anvil
+Run linting across all packages:
+
+```bash
+npm run lint
 ```
 
-### Deploy
+### Smart Contract Development
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+The smart contracts are located in `apps/contracts/`. You can work with them using these commands:
+
+```bash
+# Navigate to contracts
+cd apps/contracts
+
+# Build contracts
+npm run build
+# or: forge build
+
+# Run tests
+npm run test
+# or: forge test
+
+# Run tests with verbose output
+npm run test:verbose
+# or: forge test -vvv
+
+# Deploy contracts (example)
+npm run deploy
+# or: forge script script/Counter.s.sol
 ```
 
-### Cast
+## 📁 Project Structure
 
-```shell
-$ cast <subcommand>
+```
+tcg-magic/
+├── apps/
+│   └── contracts/          # Foundry smart contracts
+│       ├── src/           # Contract source files
+│       ├── test/          # Contract tests
+│       ├── script/        # Deployment scripts
+│       ├── lib/           # Dependencies
+│       └── foundry.toml   # Foundry configuration
+├── packages/              # Shared packages (future)
+├── package.json          # Root package.json with workspaces
+├── turbo.json           # Turborepo configuration
+└── README.md            # This file
 ```
 
-### Help
+## 🛠️ Adding New Apps
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+To add a new app to the monorepo:
+
+1. Create a new directory in `apps/`
+2. Add a `package.json` with appropriate scripts
+3. Update the root workspace configuration if needed
+4. The Turborepo will automatically detect and include it
+
+## 📚 Learn More
+
+- [Turborepo Documentation](https://turbo.build/repo/docs)
+- [Foundry Documentation](https://book.getfoundry.sh/)
+- [Solidity Documentation](https://docs.soliditylang.org/)
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
