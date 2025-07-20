@@ -242,3 +242,43 @@ Contributions are welcome! Please read our contributing guidelines before submit
 ---
 
 **🛡️ Built with military-grade security suitable for enterprise deployment with millions of dollars in value.**
+
+---
+
+## 📄 Copyright & Licensing
+
+**© 2025 TCG Magic. All Rights Reserved.**
+
+### **Proprietary Software License**
+
+This software and all associated documentation, code, designs, and intellectual property are the exclusive property of TCG Magic.
+
+**RESTRICTIONS:**
+
+- ❌ **No Copying** - Reproduction, distribution, or copying of this software is strictly prohibited
+- ❌ **No Derivative Works** - Creating derivative works based on this software is forbidden
+- ❌ **No Commercial Use** - Commercial use without explicit written permission is prohibited
+- ❌ **No Reverse Engineering** - Decompiling, disassembling, or reverse engineering is not permitted
+
+### **Commercial Licensing Available**
+
+For commercial use, enterprise deployment, or any form of reproduction:
+
+📧 **Contact:** Create an issue in this repository.
+💰 **Commercial License:** Required for any use beyond personal evaluation  
+🤝 **Enterprise Support:** Available with commercial licensing  
+⚖️ **Legal Enforcement:** Violations will be prosecuted to the full extent of the law
+
+### **Permitted Use**
+
+The following uses are permitted without a commercial license:
+
+- ✅ **Personal evaluation** for learning purposes only
+- ✅ **Academic research** (non-commercial, with attribution)
+- ✅ **Security auditing** (findings must be reported to TCG Magic)
+
+### **Disclaimer**
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+**Unauthorized use, copying, or distribution of this software may result in severe civil and criminal penalties, and will be prosecuted to the maximum extent possible under the law.**
