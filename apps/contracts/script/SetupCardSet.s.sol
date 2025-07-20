@@ -9,17 +9,10 @@ import "../src/interfaces/ICard.sol";
 
 /**
  * @title SetupCardSet
- * @dev Script to populate a CardSet with sample Card contracts and decks
- * @notice This script deploys individual Card contracts and adds them to a CardSet
+ * @dev Script to populate a CardSet with sample Card contracts using batch creation for gas efficiency
+ * @notice This script uses the batchCreateAndAddCards function for optimal gas usage
  */
 contract SetupCardSet is Script {
-    
-    // Arrays to store deployed Card contracts
-    Card[] public commonCards;
-    Card[] public uncommonCards;
-    Card[] public rareCards;
-    Card[] public mythicalCards;
-    Card[] public serializedCards;
     
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
@@ -32,10 +25,10 @@ contract SetupCardSet is Script {
         vm.startBroadcast(deployerPrivateKey);
         
         console.log("Setting up CardSet at:", cardSetAddress);
-        console.log("Deploying Card contracts and adding to set...");
+        console.log("Using batch creation for gas efficiency...");
         
-        // Deploy and add sample Card contracts
-        _deployAndAddCards(cardSet, deployer);
+        // Batch create and add Card contracts for maximum gas efficiency
+        _batchCreateCards(cardSet, deployer);
         
         // Add sample deck types using Card contracts
         _addSampleDecks(cardSet);
@@ -46,17 +39,26 @@ contract SetupCardSet is Script {
         cardSet.setDeckPrice("Fire Deck", 0.1 ether);
         cardSet.setDeckPrice("Water Deck", 0.1 ether);
         
+        // Lock the set to ensure immutability and guarantee card scarcity
+        console.log("Locking set to ensure immutability...");
+        cardSet.lockSet();
+        
         vm.stopBroadcast();
         
-        console.log("Setup completed!");
+        console.log("Setup completed with batch creation!");
         console.log("Pack price: 0.02 ETH");
         console.log("Deck prices: 0.08-0.1 ETH");
-        console.log("Deployed and registered", commonCards.length + uncommonCards.length + rareCards.length + mythicalCards.length + serializedCards.length, "Card contracts");
+        console.log("Set is now LOCKED - no more cards can be added");
+        console.log("Total cards deployed in a single batch transaction");
         console.log("Ready for pack and deck sales!");
     }
     
-    function _deployAndAddCards(CardSet cardSet, address owner) internal {
-        // === DEPLOY COMMON CARDS ===
+    function _batchCreateCards(CardSet cardSet, address owner) internal {
+        // Prepare batch creation data for maximum gas efficiency
+        ICardSet.CardCreationData[] memory cardData = new ICardSet.CardCreationData[](36);
+        uint256 index = 0;
+        
+        // === COMMON CARDS (15 cards) ===
         string[15] memory commonNames = [
             "Forest Sprite", "Stone Golem", "Fire Imp", "Water Elemental", "Wind Wisp",
             "Earth Guardian", "Shadow Cat", "Light Fairy", "Ice Shard", "Lightning Bug",
@@ -64,78 +66,66 @@ contract SetupCardSet is Script {
         ];
         
         for (uint256 i = 0; i < 15; i++) {
-            Card commonCard = new Card(
-                i + 1,
-                commonNames[i],
-                ICard.Rarity.COMMON,
-                0,
-                string(abi.encodePacked("ipfs://Qm", _generateHash(i + 1))),
-                owner
-            );
-            commonCards.push(commonCard);
-            commonCard.addAuthorizedMinter(address(cardSet));
-            cardSet.addCardContract(address(commonCard));
+            cardData[index] = ICardSet.CardCreationData({
+                cardId: i + 1,
+                name: commonNames[i],
+                rarity: ICard.Rarity.COMMON,
+                maxSupply: 0, // Unlimited
+                metadataURI: string(abi.encodePacked("ipfs://Qm", _generateHash(i + 1)))
+            });
+            index++;
         }
         
-        // === DEPLOY UNCOMMON CARDS ===
+        // === UNCOMMON CARDS (10 cards) ===
         string[10] memory uncommonNames = [
             "Storm Mage", "Crystal Guardian", "Shadow Assassin", "Phoenix Rider", "Tidal Warrior",
             "Mountain Giant", "Void Walker", "Solar Priest", "Frost Witch", "Thunder Lord"
         ];
         
         for (uint256 i = 0; i < 10; i++) {
-            Card uncommonCard = new Card(
-                i + 16,
-                uncommonNames[i],
-                ICard.Rarity.UNCOMMON,
-                0,
-                string(abi.encodePacked("ipfs://Qm", _generateHash(i + 16))),
-                owner
-            );
-            uncommonCards.push(uncommonCard);
-            uncommonCard.addAuthorizedMinter(address(cardSet));
-            cardSet.addCardContract(address(uncommonCard));
+            cardData[index] = ICardSet.CardCreationData({
+                cardId: i + 16,
+                name: uncommonNames[i],
+                rarity: ICard.Rarity.UNCOMMON,
+                maxSupply: 0, // Unlimited
+                metadataURI: string(abi.encodePacked("ipfs://Qm", _generateHash(i + 16)))
+            });
+            index++;
         }
         
-        // === DEPLOY RARE CARDS ===
+        // === RARE CARDS (5 cards) ===
         string[5] memory rareNames = [
             "Dragon Lord", "Archmage Supreme", "Death Knight", "Angel of Light", "Demon Prince"
         ];
         
         for (uint256 i = 0; i < 5; i++) {
-            Card rareCard = new Card(
-                i + 26,
-                rareNames[i],
-                ICard.Rarity.RARE,
-                0,
-                string(abi.encodePacked("ipfs://Qm", _generateHash(i + 26))),
-                owner
-            );
-            rareCards.push(rareCard);
-            rareCard.addAuthorizedMinter(address(cardSet));
-            cardSet.addCardContract(address(rareCard));
+            cardData[index] = ICardSet.CardCreationData({
+                cardId: i + 26,
+                name: rareNames[i],
+                rarity: ICard.Rarity.RARE,
+                maxSupply: 0, // Unlimited
+                metadataURI: string(abi.encodePacked("ipfs://Qm", _generateHash(i + 26)))
+            });
+            index++;
         }
         
-        // === DEPLOY MYTHICAL CARDS ===
+        // === MYTHICAL CARDS (3 cards) ===
         string[3] memory mythicalNames = [
             "Planar Sovereign", "Reality Shaper", "Void Emperor"
         ];
         
         for (uint256 i = 0; i < 3; i++) {
-            Card mythicalCard = new Card(
-                i + 31,
-                mythicalNames[i],
-                ICard.Rarity.MYTHICAL,
-                0,
-                string(abi.encodePacked("ipfs://Qm", _generateHash(i + 31))),
-                owner
-            );
-            mythicalCards.push(mythicalCard);
-            mythicalCard.addAuthorizedMinter(address(cardSet));
-            cardSet.addCardContract(address(mythicalCard));
+            cardData[index] = ICardSet.CardCreationData({
+                cardId: i + 31,
+                name: mythicalNames[i],
+                rarity: ICard.Rarity.MYTHICAL,
+                maxSupply: 0, // Unlimited
+                metadataURI: string(abi.encodePacked("ipfs://Qm", _generateHash(i + 31)))
+            });
+            index++;
         }
         
-        // === DEPLOY SERIALIZED CARDS ===
+        // === SERIALIZED CARDS (3 cards) ===
         string[3] memory serializedNames = [
             "Genesis Dragon #001", "Alpha Phoenix #001", "Omega Leviathan #001"
         ];
@@ -143,42 +133,51 @@ contract SetupCardSet is Script {
         uint256[3] memory serializedSupplies = [uint256(100), uint256(50), uint256(25)];
         
         for (uint256 i = 0; i < 3; i++) {
-            Card serializedCard = new Card(
-                i + 34,
-                serializedNames[i],
-                ICard.Rarity.SERIALIZED,
-                serializedSupplies[i],
-                string(abi.encodePacked("ipfs://Qm", _generateHash(i + 34))),
-                owner
-            );
-            serializedCards.push(serializedCard);
-            serializedCard.addAuthorizedMinter(address(cardSet));
-            cardSet.addCardContract(address(serializedCard));
+            cardData[index] = ICardSet.CardCreationData({
+                cardId: i + 34,
+                name: serializedNames[i],
+                rarity: ICard.Rarity.SERIALIZED,
+                maxSupply: serializedSupplies[i], // Limited supply
+                metadataURI: string(abi.encodePacked("ipfs://Qm", _generateHash(i + 34)))
+            });
+            index++;
         }
         
-        console.log("Deployed and added Card contracts:");
-        console.log("- 15 Commons");
-        console.log("- 10 Uncommons");
-        console.log("- 5 Rares");
-        console.log("- 3 Mythicals");
-        console.log("- 3 Serialized (limited supply)");
+        console.log("Creating and deploying 36 Card contracts in a single batch transaction...");
+        
+        // Execute batch creation - deploys all cards in one transaction!
+        cardSet.batchCreateAndAddCards(cardData);
+        
+        console.log("Batch creation completed:");
+        console.log("- 15 Commons deployed and added");
+        console.log("- 10 Uncommons deployed and added");
+        console.log("- 5 Rares deployed and added");
+        console.log("- 3 Mythicals deployed and added");
+        console.log("- 3 Serialized (limited supply) deployed and added");
+        console.log("All cards deployed, authorized, and registered in ONE transaction!");
     }
     
     function _addSampleDecks(CardSet cardSet) internal {
+        // Get the deployed card contracts by rarity for deck construction
+        address[] memory commons = cardSet.getCardContractsByRarity(ICard.Rarity.COMMON);
+        address[] memory uncommons = cardSet.getCardContractsByRarity(ICard.Rarity.UNCOMMON);
+        address[] memory rares = cardSet.getCardContractsByRarity(ICard.Rarity.RARE);
+        address[] memory mythicals = cardSet.getCardContractsByRarity(ICard.Rarity.MYTHICAL);
+        
         // === STARTER DECK ===
         address[] memory starterCardContracts = new address[](4);
         uint256[] memory starterQuantities = new uint256[](4);
         
-        starterCardContracts[0] = address(commonCards[0]); // Forest Sprite
+        starterCardContracts[0] = commons[0]; // Forest Sprite
         starterQuantities[0] = 30;
         
-        starterCardContracts[1] = address(uncommonCards[0]); // Storm Mage
+        starterCardContracts[1] = uncommons[0]; // Storm Mage
         starterQuantities[1] = 20;
         
-        starterCardContracts[2] = address(rareCards[0]); // Dragon Lord
+        starterCardContracts[2] = rares[0]; // Dragon Lord
         starterQuantities[2] = 8;
         
-        starterCardContracts[3] = address(mythicalCards[0]); // Planar Sovereign
+        starterCardContracts[3] = mythicals[0]; // Planar Sovereign
         starterQuantities[3] = 2;
         
         cardSet.addDeckType("Starter Deck", starterCardContracts, starterQuantities);
@@ -187,13 +186,13 @@ contract SetupCardSet is Script {
         address[] memory fireCardContracts = new address[](3);
         uint256[] memory fireQuantities = new uint256[](3);
         
-        fireCardContracts[0] = address(commonCards[2]); // Fire Imp
+        fireCardContracts[0] = commons[2]; // Fire Imp
         fireQuantities[0] = 35;
         
-        fireCardContracts[1] = address(commonCards[12]); // Flame Mouse
+        fireCardContracts[1] = commons[12]; // Flame Mouse
         fireQuantities[1] = 20;
         
-        fireCardContracts[2] = address(uncommonCards[3]); // Phoenix Rider
+        fireCardContracts[2] = uncommons[3]; // Phoenix Rider
         fireQuantities[2] = 5;
         
         cardSet.addDeckType("Fire Deck", fireCardContracts, fireQuantities);
@@ -202,13 +201,13 @@ contract SetupCardSet is Script {
         address[] memory waterCardContracts = new address[](3);
         uint256[] memory waterQuantities = new uint256[](3);
         
-        waterCardContracts[0] = address(commonCards[3]); // Water Elemental
+        waterCardContracts[0] = commons[3]; // Water Elemental
         waterQuantities[0] = 35;
         
-        waterCardContracts[1] = address(commonCards[13]); // Wave Rider
+        waterCardContracts[1] = commons[13]; // Wave Rider
         waterQuantities[1] = 20;
         
-        waterCardContracts[2] = address(uncommonCards[4]); // Tidal Warrior
+        waterCardContracts[2] = uncommons[4]; // Tidal Warrior
         waterQuantities[2] = 5;
         
         cardSet.addDeckType("Water Deck", waterCardContracts, waterQuantities);

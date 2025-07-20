@@ -21,9 +21,9 @@ contract CardSetTest is Test {
     Card public mythicalCard1;
     Card public serializedCard1;
     
-    address public owner = address(0x1);
-    address public user1 = address(0x2);
-    address public user2 = address(0x3);
+    address public owner = address(0x101);
+    address public user1 = address(0x102);
+    address public user2 = address(0x103);
     
     string constant SET_NAME = "Test Set S1";
     uint256 constant EMISSION_CAP = 1000000;

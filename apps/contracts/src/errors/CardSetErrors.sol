@@ -49,4 +49,15 @@ library CardSetErrors {
     error ContractPaused();
     error InvalidArrayLength();
     error InvalidParameter();
+    
+    // ============ Additional Errors for New Features ============
+    
+    error InvalidSetName();
+    error InvalidCardContract();
+    error SetIsLocked();
+    error InvalidDeckName();
+    error DeckAlreadyExists();
+    error DeckNotFound();
+    error NoFundsToWithdraw();
+    error InvalidVRFCoordinator();
 } 

@@ -82,6 +82,12 @@ contract Card is
         
         // Set default royalty to 0.1%
         _setDefaultRoyalty(_owner, DEFAULT_ROYALTY_PERCENTAGE);
+        
+        // If the contract is being created by a different address than the owner,
+        // automatically authorize the creator (likely a CardSet contract)
+        if (msg.sender != _owner) {
+            _authorizedMinters[msg.sender] = true;
+        }
     }
 
     // ============ Minting Functions ============
@@ -279,7 +285,7 @@ contract Card is
     /**
      * @dev Generate symbol for the card
      */
-    function _generateSymbol(string memory cardName, uint256 _cardId) internal pure returns (string memory) {
+    function _generateSymbol(string memory /* cardName */, uint256 _cardId) internal pure returns (string memory) {
         // Create symbol like "CARD001" for card ID 1
         return string(abi.encodePacked("CARD", _padNumber(_cardId, 3)));
     }
