@@ -42,18 +42,15 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
      */
     mapping(address => bool) private _authorizedMinters;
     
-    // ============ Enhanced Royalty System ============
+    // ============ Simplified Royalty System ============
     
     /**
-     * @dev Comprehensive royalty information with multiple recipients
+     * @dev Simplified royalty information - always pays owner
      */
     struct RoyaltyInfo {
-        address primaryRecipient;   // 20 bytes - main royalty recipient
-        address secondaryRecipient; // 20 bytes - secondary recipient (optional)
-        uint96 primaryPercentage;   // 12 bytes - primary percentage in basis points
-        uint96 secondaryPercentage; // 12 bytes - secondary percentage in basis points
-        bool isActive;              // 1 byte - whether royalties are active
-        // Total: 65 bytes (3 storage slots)
+        uint96 percentage;   // 12 bytes - royalty percentage in basis points
+        bool isActive;       // 1 byte - whether royalties are active
+        // Total: 13 bytes (fits in 1 storage slot)
     }
     RoyaltyInfo private _royaltyInfo;
     
@@ -91,12 +88,9 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         _cardName = name_;
         _baseTokenURI = baseURI_;
         
-        // Set default royalty: 2.5% to owner, 0.5% to platform
+        // Set default royalty: 2.5% to owner
         _royaltyInfo = RoyaltyInfo({
-            primaryRecipient: owner_,
-            secondaryRecipient: address(0), // Can be set later
-            primaryPercentage: 250,  // 2.5% in basis points
-            secondaryPercentage: 50, // 0.5% in basis points  
+            percentage: 250,  // 2.5% in basis points
             isActive: true
         });
         
@@ -240,65 +234,46 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
     // ============ Enhanced Royalty System ============
     
     /**
-     * @dev Comprehensive royalty information supporting multiple recipients
+     * @dev Simplified royalty information - always pays owner
      */
     function royaltyInfo(uint256, uint256 salePrice) external view override returns (address, uint256) {
         if (!_royaltyInfo.isActive) {
             return (address(0), 0);
         }
         
-        // Calculate total royalty amount
-        uint256 totalPercentage = _royaltyInfo.primaryPercentage + _royaltyInfo.secondaryPercentage;
-        uint256 royaltyAmount = (salePrice * totalPercentage) / 10000;
+        // Calculate royalty amount
+        uint256 royaltyAmount = (salePrice * _royaltyInfo.percentage) / 10000;
         
-        // Return primary recipient for ERC2981 compatibility
-        return (_royaltyInfo.primaryRecipient, royaltyAmount);
+        // Always return owner as recipient
+        return (owner(), royaltyAmount);
     }
     
     /**
-     * @dev Get detailed royalty information for both recipients
+     * @dev Get detailed royalty information - always returns owner
      */
-         function getRoyaltyInfo(uint256 salePrice) external view returns (
-         address primaryRecipient,
-         uint256 primaryAmount,
-         address secondaryRecipient,
-         uint256 secondaryAmount,
-         bool royaltyActive
-     ) {
-         if (!_royaltyInfo.isActive) {
-             return (address(0), 0, address(0), 0, false);
-         }
-         
-         primaryRecipient = _royaltyInfo.primaryRecipient;
-         primaryAmount = (salePrice * _royaltyInfo.primaryPercentage) / 10000;
-         secondaryRecipient = _royaltyInfo.secondaryRecipient;
-         secondaryAmount = (salePrice * _royaltyInfo.secondaryPercentage) / 10000;
-         royaltyActive = _royaltyInfo.isActive;
-     }
+    function getRoyaltyInfo(uint256 salePrice) external view returns (
+        address recipient,
+        uint256 amount,
+        bool royaltyActive
+    ) {
+        if (!_royaltyInfo.isActive) {
+            return (address(0), 0, false);
+        }
+        
+        recipient = owner();
+        amount = (salePrice * _royaltyInfo.percentage) / 10000;
+        royaltyActive = _royaltyInfo.isActive;
+    }
     
     /**
-     * @dev Set primary royalty recipient and percentage
+     * @dev Set royalty percentage - recipient is always owner
      */
-    function setRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
-        require(receiver != address(0), "Invalid recipient");
+    function setRoyalty(uint96 feeNumerator) external onlyOwner {
         require(feeNumerator <= 1000, "Royalty too high"); // Max 10%
         
-        _royaltyInfo.primaryRecipient = receiver;
-        _royaltyInfo.primaryPercentage = feeNumerator;
+        _royaltyInfo.percentage = feeNumerator;
         
-        emit RoyaltyUpdated(receiver, feeNumerator);
-    }
-    
-    /**
-     * @dev Set secondary royalty recipient (for platform fees, etc.)
-     */
-    function setSecondaryRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
-        require(feeNumerator <= 500, "Secondary royalty too high"); // Max 5%
-        
-        _royaltyInfo.secondaryRecipient = receiver;
-        _royaltyInfo.secondaryPercentage = feeNumerator;
-        
-        emit RoyaltyUpdated(receiver, feeNumerator);
+        emit RoyaltyUpdated(owner(), feeNumerator);
     }
     
     /**
@@ -309,11 +284,11 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
     }
     
     /**
-     * @dev Get current royalty percentages
+     * @dev Get current royalty percentage
      */
-         function getRoyaltyPercentages() external view returns (uint96 primary, uint96 secondary, bool royaltyActive) {
-         return (_royaltyInfo.primaryPercentage, _royaltyInfo.secondaryPercentage, _royaltyInfo.isActive);
-     }
+    function getRoyaltyPercentage() external view returns (uint96 percentage, bool royaltyActive) {
+        return (_royaltyInfo.percentage, _royaltyInfo.isActive);
+    }
     
     // ============ Admin Functions ============
     
@@ -403,21 +378,15 @@ contract Card is ERC1155, Ownable, ReentrancyGuard, Pausable, IERC2981, ICard {
         require(msg.value >= salePrice, "Insufficient payment");
         require(_royaltyInfo.isActive, "Royalties not active");
         
-        uint256 primaryAmount = (salePrice * _royaltyInfo.primaryPercentage) / 10000;
-        uint256 secondaryAmount = (salePrice * _royaltyInfo.secondaryPercentage) / 10000;
+        uint256 royaltyAmount = (salePrice * _royaltyInfo.percentage) / 10000;
         
-        // Send primary royalty
-        if (primaryAmount > 0 && _royaltyInfo.primaryRecipient != address(0)) {
-            payable(_royaltyInfo.primaryRecipient).transfer(primaryAmount);
-        }
-        
-        // Send secondary royalty
-        if (secondaryAmount > 0 && _royaltyInfo.secondaryRecipient != address(0)) {
-            payable(_royaltyInfo.secondaryRecipient).transfer(secondaryAmount);
+        // Send royalty to owner
+        if (royaltyAmount > 0) {
+            payable(owner()).transfer(royaltyAmount);
         }
         
         // Return any excess
-        uint256 remaining = msg.value - primaryAmount - secondaryAmount;
+        uint256 remaining = msg.value - royaltyAmount;
         if (remaining > 0) {
             payable(msg.sender).transfer(remaining);
         }

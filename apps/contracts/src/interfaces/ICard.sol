@@ -55,7 +55,7 @@ interface ICard {
     // Admin Functions
     function setActive(bool _active) external;
     function setMetadataURI(string calldata _metadataURI) external;
-    function setRoyalty(address receiver, uint96 feeNumerator) external;
+    function setRoyalty(uint96 feeNumerator) external;
 
     // Authorization Functions
     function addAuthorizedMinter(address minter) external;

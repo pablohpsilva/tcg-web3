@@ -310,25 +310,14 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable, EIP712 {
             if (cardProportion > 0 && cardContracts[i] != address(0)) {
                 Card card = Card(cardContracts[i]);
                 (
-                    address primaryRecipient,
-                    uint256 primaryAmount,
-                    address secondaryRecipient,
-                    uint256 secondaryAmount,
+                    address recipient,
+                    uint256 amount,
                     bool royaltyActive
                 ) = card.getRoyaltyInfo(cardProportion);
                 
-                if (royaltyActive) {
-                    // Pay primary royalty
-                    if (primaryRecipient != address(0) && primaryAmount > 0) {
-                        payable(primaryRecipient).transfer(primaryAmount);
-                        emit RoyaltyPaid(primaryRecipient, primaryAmount, cardContracts[i]);
-                    }
-                    
-                    // Pay secondary royalty
-                    if (secondaryRecipient != address(0) && secondaryAmount > 0) {
-                        payable(secondaryRecipient).transfer(secondaryAmount);
-                        emit RoyaltyPaid(secondaryRecipient, secondaryAmount, cardContracts[i]);
-                    }
+                if (royaltyActive && recipient != address(0) && amount > 0) {
+                    payable(recipient).transfer(amount);
+                    emit RoyaltyPaid(recipient, amount, cardContracts[i]);
                 }
             }
         }
