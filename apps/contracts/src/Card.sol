@@ -50,7 +50,7 @@ contract Card is
      * @param _name Name of the card
      * @param _rarity Rarity level of the card
      * @param _maxSupply Maximum supply (0 for unlimited, >0 for serialized)
-     * @param _metadataURI IPFS URI for card metadata
+     * @param metadataURI_ IPFS URI for card metadata
      * @param _owner Owner of the card contract
      */
     constructor(
