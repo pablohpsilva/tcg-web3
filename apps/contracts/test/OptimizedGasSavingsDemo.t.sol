@@ -2,8 +2,6 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
-import "../src/OptimizedCard.sol";
-import "../src/OptimizedCardSet.sol";
 import "../src/Card.sol";
 import "../src/CardSet.sol";
 import "../src/interfaces/ICard.sol";
@@ -22,10 +20,10 @@ contract OptimizedGasSavingsDemo is Test {
     CardSet public originalCardSet;
     
     // Optimized contracts
-    OptimizedCard public optimizedCommonCard;
-    OptimizedCard public optimizedRareCard;
-    OptimizedCard public optimizedSerializedCard;
-    OptimizedCardSet public optimizedCardSet;
+    Card public optimizedCommonCard;
+    Card public optimizedRareCard;
+    Card public optimizedSerializedCard;
+    CardSet public optimizedCardSet;
     
     MockVRFCoordinator public vrfCoordinator;
     
@@ -62,12 +60,13 @@ contract OptimizedGasSavingsDemo is Test {
         originalCardSet.setDeckPrice("Original Deck", 0.08 ether);
         
         // ============ Setup Optimized Contracts ============
-        optimizedCardSet = new OptimizedCardSet("Optimized Set", 999999990, address(vrfCoordinator), owner);
+        optimizedCardSet = new CardSet("Optimized Set", 999999990, address(vrfCoordinator), owner);
         
-        optimizedCommonCard = new OptimizedCard(1, "Optimized Common", ICard.Rarity.COMMON, 0, "ipfs://optimized-common", owner);
-        optimizedRareCard = new OptimizedCard(2, "Optimized Rare", ICard.Rarity.RARE, 0, "ipfs://optimized-rare", owner);
-        optimizedSerializedCard = new OptimizedCard(3, "Optimized Serialized", ICard.Rarity.SERIALIZED, 101, "ipfs://optimized-serialized", owner);
+        optimizedCommonCard = new Card(1, "Optimized Common", ICard.Rarity.COMMON, 0, "ipfs://optimized-common", owner);
+        optimizedRareCard = new Card(2, "Optimized Rare", ICard.Rarity.RARE, 0, "ipfs://optimized-rare", owner);
+        optimizedSerializedCard = new Card(3, "Optimized Serialized", ICard.Rarity.SERIALIZED, 101, "ipfs://optimized-serialized", owner);
         
+        // Manual authorization needed since both CardSet and Cards created by same owner
         optimizedCommonCard.addAuthorizedMinter(address(optimizedCardSet));
         optimizedCommonCard.addAuthorizedMinter(owner); // Authorize owner for testing
         optimizedRareCard.addAuthorizedMinter(address(optimizedCardSet));

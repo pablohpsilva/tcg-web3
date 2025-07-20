@@ -2,7 +2,6 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
-import "../src/OptimizedCard.sol";
 import "../src/Card.sol";
 import "../src/interfaces/ICard.sol";
 
@@ -173,7 +172,7 @@ contract GasOptimizationDemo is Test {
         console.log("=== RECOMMENDED IMPLEMENTATION PLAN ===");
         console.log("");
         console.log("PHASE 1: IMMEDIATE WINS");
-        console.log("1. Deploy OptimizedCard (ERC1155) contracts");
+        console.log("1. Deploy Card (ERC1155) contracts");
         console.log("2. Implement batch minting functions");
         console.log("3. Add storage optimization");
         console.log("   Expected result: 90%+ gas savings immediately");

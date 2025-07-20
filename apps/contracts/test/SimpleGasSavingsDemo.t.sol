@@ -2,7 +2,6 @@
 pragma solidity ^0.8.19;
 
 import "forge-std/Test.sol";
-import "../src/OptimizedCard.sol";
 import "../src/Card.sol";
 import "../src/interfaces/ICard.sol";
 
@@ -13,7 +12,7 @@ import "../src/interfaces/ICard.sol";
 contract SimpleGasSavingsDemo is Test {
     
     Card public originalCard;
-    OptimizedCard public optimizedCard;
+    Card public optimizedCard;
     
     address public owner = address(0x101);
     address public player = address(0x102);
@@ -25,7 +24,7 @@ contract SimpleGasSavingsDemo is Test {
         originalCard = new Card(1, "Original Card", ICard.Rarity.COMMON, 0, "ipfs://original", owner);
         
         // Create optimized ERC1155 card
-        optimizedCard = new OptimizedCard(1, "Optimized Card", ICard.Rarity.COMMON, 0, "ipfs://optimized", owner);
+        optimizedCard = new Card(1, "Optimized Card", ICard.Rarity.COMMON, 0, "ipfs://optimized", owner);
         
         vm.stopPrank();
     }
