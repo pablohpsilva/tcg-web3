@@ -12,8 +12,7 @@ import "../src/interfaces/ICard.sol";
 contract SimpleRoyaltyTest is Test {
     
     Card public card;
-    address public artist = address(0x102);
-    address public platform = address(0x103);
+    address public owner = address(0x102);
     
     function setUp() public {
         // Deploy optimized Card with royalty settings
@@ -23,7 +22,7 @@ contract SimpleRoyaltyTest is Test {
             ICard.Rarity.RARE, 
             100, 
             "ipfs://test", 
-            artist // Artist as initial owner for royalties
+            owner // Owner receives all royalties
         );
     }
     
@@ -41,63 +40,48 @@ contract SimpleRoyaltyTest is Test {
         console.log("Royalty amount:", amount / 1e18, "ETH");
         console.log("");
         
-        assertEq(recipient, artist, "Royalty recipient should be artist");
-        assertEq(amount, (salePrice * 300) / 10000, "Should be 3% total royalty");
+        assertEq(recipient, owner, "Royalty recipient should be owner");
+        assertEq(amount, (salePrice * 250) / 10000, "Should be 2.5% royalty");
         
         // Test ERC2981 interface support
         bool supportsERC2981 = card.supportsInterface(type(IERC2981).interfaceId);
         assertTrue(supportsERC2981, "Should support ERC2981");
         console.log("ERC2981 supported:", supportsERC2981);
         
-        // Test setting secondary royalty
-        vm.startPrank(artist);
-        card.setSecondaryRoyalty(platform, 50); // 0.5% to platform
-        vm.stopPrank();
-        
         // Test detailed royalty info
         (
-            address primaryRecipient,
-            uint256 primaryAmount,
-            address secondaryRecipient,
-            uint256 secondaryAmount,
+            address detailedRecipient,
+            uint256 detailedAmount,
             bool royaltyActive
         ) = card.getRoyaltyInfo(salePrice);
         
-        console.log("Primary recipient (artist):", primaryRecipient);
-        console.log("Primary amount: 0.025 ETH");
-        console.log("Secondary recipient (platform):", secondaryRecipient);
-        console.log("Secondary amount: 0.005 ETH");
+        console.log("Recipient (owner):", detailedRecipient);
+        console.log("Amount: 0.025 ETH");
         console.log("Royalties active:", royaltyActive);
         console.log("");
         
-        assertEq(primaryRecipient, artist, "Primary should be artist");
-        assertEq(secondaryRecipient, platform, "Secondary should be platform");
-        assertEq(primaryAmount, (salePrice * 250) / 10000, "Primary should be 2.5%");
-        assertEq(secondaryAmount, (salePrice * 50) / 10000, "Secondary should be 0.5%");
+        assertEq(detailedRecipient, owner, "Recipient should be owner");
+        assertEq(detailedAmount, (salePrice * 250) / 10000, "Amount should be 2.5%");
         assertTrue(royaltyActive, "Royalties should be active");
         
         // Test royalty distribution
         vm.deal(address(this), 10 ether);
         
-        uint256 artistBefore = artist.balance;
-        uint256 platformBefore = platform.balance;
+        uint256 ownerBefore = owner.balance;
         
         card.distributeRoyalties{value: salePrice}(salePrice);
         
-        console.log("Artist royalty received:", (artist.balance - artistBefore) / 1e18, "ETH");
-        console.log("Platform royalty received:", (platform.balance - platformBefore) / 1e18, "ETH");
+        console.log("Owner royalty received:", (owner.balance - ownerBefore) / 1e18, "ETH");
         console.log("");
         
         // Verify royalty amounts directly
-        assertEq(artist.balance - artistBefore, 25000000000000000, "Artist should receive 2.5%"); // 0.025 ETH
-        assertEq(platform.balance - platformBefore, 5000000000000000, "Platform should receive 0.5%"); // 0.005 ETH
+        assertEq(owner.balance - ownerBefore, 25000000000000000, "Owner should receive 2.5%"); // 0.025 ETH
         
         console.log("SUCCESS: All royalty tests passed!");
         console.log("");
         console.log("ROYALTY FEATURES VERIFIED:");
         console.log("+ ERC2981 compliance");
-        console.log("+ Primary royalty (2.5% to artist)");
-        console.log("+ Secondary royalty (0.5% to platform)");
+        console.log("+ Owner royalty (2.5%)");
         console.log("+ Automatic distribution");
         console.log("+ Gas-optimized implementation");
         console.log("");
