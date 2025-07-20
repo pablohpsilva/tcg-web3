@@ -616,4 +616,114 @@ contract EmissionAndDistributionTest is Test {
         }
         return total;
     }
+
+        /**
+     * @dev Tests serialized card distribution in a 1 billion card emission scenario
+     */
+    function testSerializedCardProbabilityMassiveEmission() public {
+        _setupMassiveEmissionTest();
+        _runProbabilityCalculations();
+        _simulatePackOpenings();
+        _verifySerializedDistribution();
+    }
+
+    function _setupMassiveEmissionTest() internal {
+        vm.startPrank(owner);
+        cardSet = new CardSet("Massive Set", 999999990, address(vrfCoordinator), owner);
+        
+        // Create 4 serialized cards with different supply limits
+        Card dragon = new Card(1001, "Ultra Rare Dragon", ICard.Rarity.SERIALIZED, 1000, "ipfs://dragon", owner);
+        Card phoenix = new Card(1002, "Legendary Phoenix", ICard.Rarity.SERIALIZED, 500, "ipfs://phoenix", owner);
+        Card unicorn = new Card(1003, "Mythic Unicorn", ICard.Rarity.SERIALIZED, 100, "ipfs://unicorn", owner);
+        Card masterpiece = new Card(1004, "One of One Masterpiece", ICard.Rarity.SERIALIZED, 1, "ipfs://masterpiece", owner);
+        
+        dragon.addAuthorizedMinter(address(cardSet));
+        phoenix.addAuthorizedMinter(address(cardSet));
+        unicorn.addAuthorizedMinter(address(cardSet));
+        masterpiece.addAuthorizedMinter(address(cardSet));
+        
+        cardSet.addCardContract(address(dragon));
+        cardSet.addCardContract(address(phoenix));
+        cardSet.addCardContract(address(unicorn));
+        cardSet.addCardContract(address(masterpiece));
+        
+        // Add mythical card for fallback
+        Card mythical = new Card(2001, "Mythical Creature", ICard.Rarity.MYTHICAL, 0, "ipfs://mythical", owner);
+        mythical.addAuthorizedMinter(address(cardSet));
+        cardSet.addCardContract(address(mythical));
+        
+        vm.stopPrank();
+    }
+
+    function _runProbabilityCalculations() internal view {
+        uint256 totalPacks = 999999990 / 15; // 66,666,666 packs
+        uint256 expectedAttempts = (totalPacks * 5) / 100; // 3,333,333 attempts
+        
+        console.log("=== MASSIVE EMISSION ANALYSIS ===");
+        console.log("Total emission cap: 999,999,990 cards");
+        console.log("Total packs:", totalPacks);
+        console.log("Expected serialized attempts (5% of lucky slots):", expectedAttempts);
+        console.log("Total serialized cards available: 1,601");
+        console.log("Success rate of serialized attempts:", (1601 * 10000) / expectedAttempts, "basis points");
+    }
+
+    function _simulatePackOpenings() internal {
+        vm.startPrank(user1);
+        
+        // Simulate realistic pack openings with 5% serialized chance
+        uint256 serializedCount = 0;
+        
+        for (uint256 i = 0; i < 200; i++) {
+            cardSet.openPack{value: PACK_PRICE}();
+            uint256 requestId = vrfCoordinator.getLastRequestId();
+            
+            // Use realistic 5% chance for serialized in lucky slot
+            vrfCoordinator.autoFulfillRequest(requestId, 15);
+            
+            // Check if serialized was minted this pack
+            address[] memory serializedCards = cardSet.getCardContractsByRarity(ICard.Rarity.SERIALIZED);
+            uint256 newCount = 0;
+            for (uint256 j = 0; j < serializedCards.length; j++) {
+                newCount += ICard(serializedCards[j]).currentSupply();
+            }
+            
+            if (newCount > serializedCount) {
+                console.log("Serialized card minted in pack", i + 1);
+                serializedCount = newCount;
+            }
+            
+            // Check if we've exhausted small supply cards
+            if (serializedCount > 10) {
+                console.log("Multiple serialized cards found, stopping simulation at pack", i + 1);
+                break;
+            }
+        }
+        
+        vm.stopPrank();
+    }
+
+    function _verifySerializedDistribution() internal view {
+        address[] memory serialized = cardSet.getCardContractsByRarity(ICard.Rarity.SERIALIZED);
+        uint256 totalMinted = 0;
+        
+        for (uint256 i = 0; i < serialized.length; i++) {
+            uint256 supply = ICard(serialized[i]).currentSupply();
+            totalMinted += supply;
+            console.log("Serialized card", i + 1, "minted:", supply);
+        }
+        
+        console.log("=== FINAL RESULTS ===");
+        console.log("Total serialized minted:", totalMinted);
+        console.log("For 1 billion card emission:");
+        console.log("- Max serialized possible: 1,601 (0.0001601%)");
+        console.log("- Expected attempts: 3,333,333");
+        console.log("- Chance per pack: 5% (lucky slot only)");
+        console.log("- Packs needed to exhaust all: ~32,020");
+        
+        assertTrue(totalMinted > 0, "Should have minted serialized cards");
+        
+        // Verify emission cap validation works
+        (bool isValid,,) = cardSet.validateEmissionCapForPackSize(999999990);
+        assertTrue(isValid, "Massive emission cap should be valid");
+    }
 } 

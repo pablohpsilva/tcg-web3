@@ -280,12 +280,12 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable {
      * @return Address of selected card contract
      */
     function _selectCardContract(uint256 randomValue, bool isLuckySlot) internal view returns (address) {
-        uint256 roll = randomValue % 100;
-        
         if (isLuckySlot) {
             // Lucky slot has higher chances for rare cards
-            if (roll >= 95 && _cardContractsByRarity[ICard.Rarity.SERIALIZED].length > 0) {
-                // 5% chance for serialized, but check if any can still be minted
+            // LEGENDARY TIER: 0.5% chance for serialized (10x rarer than before)
+            uint256 serializedRoll = randomValue % 1000; // Use 1000 for 0.5% precision
+            if (serializedRoll >= 995 && _cardContractsByRarity[ICard.Rarity.SERIALIZED].length > 0) {
+                // 0.5% chance for serialized, but check if any can still be minted
                 address[] memory serialized = _cardContractsByRarity[ICard.Rarity.SERIALIZED];
                 for (uint256 i = 0; i < serialized.length; i++) {
                     if (ICard(serialized[i]).canMint()) {
@@ -295,6 +295,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable {
                 // Fallback to mythical if no serialized available
             }
             
+            uint256 roll = randomValue % 100; // Standard 100-based system for other rarities
             if (roll >= 70 && _cardContractsByRarity[ICard.Rarity.MYTHICAL].length > 0) {
                 // 25% chance for mythical (70-94)
                 address[] memory mythical = _cardContractsByRarity[ICard.Rarity.MYTHICAL];
@@ -320,6 +321,7 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable {
             }
         } else {
             // Regular slots favor common cards
+            uint256 roll = randomValue % 100; // Standard 100-based system for regular slots
             if (roll >= 40) {
                 // 60% chance for common
                 address[] memory common = _cardContractsByRarity[ICard.Rarity.COMMON];
