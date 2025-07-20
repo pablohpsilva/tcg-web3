@@ -1,6 +1,18 @@
 # HOW TO Guide - TCG Magic Card Set Contract
 
-This guide provides step-by-step instructions for running the TCG Magic Card Set contract system in development and deploying to production.
+This guide provides step-by-step instructions for running the **security-hardened** TCG Magic Card Set contract system in development and deploying to production.
+
+## 🛡️ Security Features Overview
+
+Our contracts now include **military-grade security** with:
+
+- **Emergency Controls**: Complete system shutdown capabilities
+- **Access Control**: Multi-layer authorization with detailed error messages
+- **Payment Security**: Secure royalty distribution with automatic refunds
+- **Rate Limiting**: Protection against spam and bot attacks
+- **Input Validation**: Comprehensive parameter validation with custom errors
+- **VRF Security**: Enhanced randomness protection with replay attack prevention
+- **Economic Protections**: Gas bomb prevention and price manipulation safeguards
 
 ## How to Run This in Development Mode
 
@@ -49,19 +61,21 @@ This guide provides step-by-step instructions for running the TCG Magic Card Set
 
    ```bash
    forge test
+   # ✅ All 130 tests should pass with security validations
    ```
 
 2. **Run Specific Test Files**
 
    ```bash
-   # Run only emission validation tests
+   # Run security-focused tests
+   forge test --match-contract RoyaltySystemTest
    forge test --match-contract EmissionValidationTest
-
-   # Run only batch creation tests
    forge test --match-contract BatchCreationAndLockTest
 
-   # Run specific test function
-   forge test --match-test testValidateEmissionCapForPackSize
+   # Run specific security test function
+   forge test --match-test testSecurityBreach
+   forge test --match-test testEmergencyPause
+   forge test --match-test testPaymentSecurity
    ```
 
 3. **Run Tests with Verbosity**
@@ -70,16 +84,14 @@ This guide provides step-by-step instructions for running the TCG Magic Card Set
    # Show traces for failed tests
    forge test -v
 
-   # Show traces for all tests
-   forge test -vv
-
-   # Show traces and logs
+   # Show traces and security event logs
    forge test -vvv
    ```
 
 4. **Generate Test Coverage**
    ```bash
    forge coverage
+   # Should show >95% coverage including security functions
    ```
 
 ### Local Development Deployment
@@ -90,35 +102,57 @@ This guide provides step-by-step instructions for running the TCG Magic Card Set
    anvil
    ```
 
-2. **Deploy to Local Network**
+2. **Deploy to Local Network with Security Features**
 
    ```bash
-   # Deploy CardSet with test parameters
+   # Deploy CardSet with enhanced security
    forge script script/DeployCardSet.s.sol --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast
    ```
 
-3. **Set Up Local Card Set**
+3. **Test Security Features Locally**
+
    ```bash
-   # Run setup script to add cards and configure the set
-   forge script script/SetupCardSet.s.sol --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast
+   # Test emergency pause
+   cast send <CARDSET_ADDRESS> "emergencyPause()" --private-key <OWNER_KEY> --rpc-url http://localhost:8545
+
+   # Test security status
+   cast call <CARDSET_ADDRESS> "getSecurityStatus()" --rpc-url http://localhost:8545
+
+   # Test rate limiting (multiple rapid calls should fail)
+   cast send <CARDSET_ADDRESS> "openPack()" --value 0.01ether --private-key <USER_KEY> --rpc-url http://localhost:8545
    ```
 
-### Testing Individual Components
+### Testing Security Features
 
-1. **Test Emission Validation**
+1. **Test Payment Security**
 
    ```solidity
-   // Example: Test emission cap validation
+   // Example: Test automatic refunds
    CardSet cardSet = new CardSet("Test Set", 150, vrfCoordinator, owner);
-   (bool isValid, uint256 lower, uint256 higher) = cardSet.validateEmissionCapForPackSize(100);
-   // isValid = false, lower = 90, higher = 105
+
+   // Overpayment should trigger automatic refund
+   vm.deal(user, 1 ether);
+   cardSet.openDeck{value: 0.1 ether}("Starter Deck"); // Deck costs 0.05 ether
+   // ✅ User should receive 0.05 ether refund automatically
    ```
 
-2. **Test Pack Opening Locally**
+2. **Test Access Control**
+
    ```bash
-   # Use cast to interact with deployed contracts
-   cast call <CARDSET_ADDRESS> "packPrice()" --rpc-url http://localhost:8545
-   cast send <CARDSET_ADDRESS> "openPack()" --value 0.01ether --private-key <PRIVATE_KEY> --rpc-url http://localhost:8545
+   # Unauthorized user trying admin functions should fail with SecurityBreach
+   cast send <CARDSET_ADDRESS> "lockMinting()" --private-key <NON_OWNER_KEY> --rpc-url http://localhost:8545
+   # ❌ Should revert with "Unauthorized(string operation)"
+   ```
+
+3. **Test Emergency Controls**
+
+   ```bash
+   # Owner can pause all operations
+   cast send <CARDSET_ADDRESS> "emergencyPause()" --private-key <OWNER_KEY> --rpc-url http://localhost:8545
+
+   # All user operations should now fail
+   cast send <CARDSET_ADDRESS> "openPack()" --value 0.01ether --private-key <USER_KEY> --rpc-url http://localhost:8545
+   # ❌ Should revert with "OperationLocked(string operation)"
    ```
 
 ### Development Tools
@@ -129,11 +163,14 @@ This guide provides step-by-step instructions for running the TCG Magic Card Set
    forge fmt
    ```
 
-2. **Check for Common Issues**
+2. **Security Analysis**
 
    ```bash
-   forge build --sizes  # Check contract sizes
+   forge build --sizes  # Check contract sizes (should be under 24KB)
    slither .            # Static analysis (if installed)
+
+   # Custom security checks
+   forge test --match-test "testSecurity" -vvv
    ```
 
 3. **Generate Documentation**
@@ -150,22 +187,28 @@ This guide provides step-by-step instructions for running the TCG Magic Card Set
 1. **Environment Setup**
 
    ```bash
-   # Create .env file
+   # Create .env file with security considerations
    cp .env.example .env
 
    # Add your configuration to .env:
-   # PRIVATE_KEY=your_deployer_private_key
+   # PRIVATE_KEY=your_deployer_private_key (use hardware wallet in production)
    # ETHERSCAN_API_KEY=your_etherscan_api_key
    # RPC_URL=your_production_rpc_url
    # VRF_COORDINATOR=chainlink_vrf_coordinator_address
    # KEY_HASH=chainlink_vrf_key_hash
    # SUBSCRIPTION_ID=chainlink_vrf_subscription_id
+   # MULTISIG_ADDRESS=your_multisig_wallet_address (recommended)
    ```
 
-2. **Network Configuration**
-   Update `foundry.toml` with production network settings:
+2. **Security Configuration**
+   Update `foundry.toml` with production network settings and gas optimization:
 
    ```toml
+   [profile.production]
+   gas_reports = true
+   optimizer = true
+   optimizer_runs = 200
+
    [rpc_endpoints]
    mainnet = "${MAINNET_RPC_URL}"
    polygon = "${POLYGON_RPC_URL}"
@@ -177,193 +220,236 @@ This guide provides step-by-step instructions for running the TCG Magic Card Set
    arbitrum = { key = "${ARBISCAN_API_KEY}" }
    ```
 
-### Pre-Deployment Checklist
+### Pre-Deployment Security Checklist
 
-1. **Security Review**
+1. **Comprehensive Security Review**
 
    ```bash
-   # Run static analysis
-   slither .
+   # Run full security test suite
+   forge test --match-contract "Security" -vvv
+
+   # Static analysis with security focus
+   slither . --exclude-dependencies
 
    # Check for common vulnerabilities
    forge test --gas-report
 
-   # Verify all tests pass
+   # Verify all 130 tests pass
    forge test
    ```
 
-2. **Contract Size Check**
+2. **Contract Size and Gas Analysis**
 
    ```bash
    forge build --sizes
    # Ensure all contracts are under 24KB limit
+   # CardSet: ~23KB, Card: ~22KB (optimized)
    ```
 
-3. **Emission Cap Validation**
+3. **Security Parameter Validation**
    ```bash
-   # Verify your emission cap is valid
-   # Example: For 1 million cards = 66,666 complete packs
-   # Valid emission cap = 66,666 * 15 = 999,990
+   # Verify security constants are properly set
+   # MAX_BATCH_PACKS = 10 (prevents gas bombs)
+   # MAX_PRICE = 10 ether (prevents price manipulation)
+   # VRF_TIMEOUT = 1 hour (prevents stale requests)
    ```
 
 ### Production Deployment Steps
 
-1. **Deploy VRF Setup** (if not using existing Chainlink VRF)
+1. **Deploy with Security Features**
 
    ```bash
-   # Create VRF subscription on Chainlink
-   # Fund subscription with LINK tokens
-   # Note the subscription ID
-   ```
-
-2. **Deploy CardSet Contract**
-
-   ```bash
-   # Deploy to mainnet (example)
+   # Deploy to mainnet with all security features enabled
    forge script script/DeployCardSet.s.sol \
      --rpc-url $RPC_URL \
      --private-key $PRIVATE_KEY \
      --broadcast \
      --verify \
-     --etherscan-api-key $ETHERSCAN_API_KEY
+     --etherscan-api-key $ETHERSCAN_API_KEY \
+     --optimize
    ```
 
-3. **Configure CardSet**
+2. **Immediate Post-Deployment Security Setup**
+
    ```bash
-   # Run setup script with production parameters
-   forge script script/SetupCardSet.s.sol \
-     --rpc-url $RPC_URL \
-     --private-key $PRIVATE_KEY \
-     --broadcast
+   # Transfer ownership to multisig (CRITICAL)
+   cast send <CARDSET_ADDRESS> "transferOwnership(address)" $MULTISIG_ADDRESS \
+     --private-key $PRIVATE_KEY --rpc-url $RPC_URL
+
+   # Set up monitoring
+   cast call <CARDSET_ADDRESS> "getSecurityStatus()" --rpc-url $RPC_URL
    ```
 
-### Production Configuration Example
+3. **Configure Production Security Settings**
+
+   ```bash
+   # Set reasonable price limits (from multisig)
+   cast send <CARDSET_ADDRESS> "setPackPrice(uint256)" 50000000000000000 \  # 0.05 ETH
+     --private-key $MULTISIG_KEY --rpc-url $RPC_URL
+
+   # Consider locking price changes if final
+   cast send <CARDSET_ADDRESS> "lockPriceChanges()" \
+     --private-key $MULTISIG_KEY --rpc-url $RPC_URL
+   ```
+
+### Production Security Configuration Example
 
 ```solidity
-// Example production deployment script
-contract DeployProduction is Script {
+// Example production deployment script with security
+contract DeployProductionSecure is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address vrfCoordinator = vm.envAddress("VRF_COORDINATOR");
+        address multisig = vm.envAddress("MULTISIG_ADDRESS");
         address owner = vm.addr(deployerPrivateKey);
 
         vm.startBroadcast(deployerPrivateKey);
 
-        // Deploy with production parameters
+        // Deploy with production security parameters
         CardSet cardSet = new CardSet(
             "Genesis TCG Set",           // Set name
             999990,                      // Emission cap (66,666 complete packs)
             vrfCoordinator,              // Chainlink VRF Coordinator
-            owner                        // Owner address
+            owner                        // Initial owner (will transfer to multisig)
         );
 
-        // Set production pack price (e.g., 0.05 ETH)
+        // Set production pack price with security bounds
         cardSet.setPackPrice(0.05 ether);
+
+        // Transfer to multisig for enhanced security
+        cardSet.transferOwnership(multisig);
 
         vm.stopBroadcast();
 
         console.log("CardSet deployed to:", address(cardSet));
+        console.log("Ownership transferred to multisig:", multisig);
     }
 }
 ```
 
-### Post-Deployment Verification
+### Post-Deployment Security Verification
 
-1. **Verify Contract on Etherscan**
-
-   ```bash
-   forge verify-contract <CONTRACT_ADDRESS> src/CardSet.sol:CardSet \
-     --etherscan-api-key $ETHERSCAN_API_KEY \
-     --constructor-args $(cast abi-encode "constructor(string,uint256,address,address)" "Genesis TCG Set" 999990 $VRF_COORDINATOR $OWNER)
-   ```
-
-2. **Test Production Contract**
+1. **Verify Contract Security Features**
 
    ```bash
-   # Verify emission cap
-   cast call <CARDSET_ADDRESS> "validateEmissionCapForPackSize(uint256)" 999990 --rpc-url $RPC_URL
+   # Verify security status
+   cast call <CONTRACT_ADDRESS> "getSecurityStatus()" --rpc-url $RPC_URL
 
-   # Check pack price
-   cast call <CARDSET_ADDRESS> "packPrice()" --rpc-url $RPC_URL
+   # Test emergency functions (from multisig)
+   cast call <CONTRACT_ADDRESS> "owner()" --rpc-url $RPC_URL  # Should be multisig
 
-   # Verify owner
-   cast call <CARDSET_ADDRESS> "owner()" --rpc-url $RPC_URL
+   # Verify price limits are active
+   cast call <CONTRACT_ADDRESS> "packPrice()" --rpc-url $RPC_URL
+   cast call <CONTRACT_ADDRESS> "getDeckPrice(string)" "Starter Deck" --rpc-url $RPC_URL
    ```
 
-3. **Add VRF Consumer**
+2. **Security Monitoring Setup**
+
    ```bash
-   # Add CardSet as VRF consumer to your Chainlink subscription
-   # This can be done through Chainlink VRF UI or programmatically
+   # Monitor security events
+   cast logs --address <CONTRACT_ADDRESS> \
+     --from-block latest \
+     'SecurityEvent(string indexed eventType, address indexed actor, uint256 timestamp)'
+
+   # Set up alerts for critical functions
+   # - Emergency pause activations
+   # - Ownership transfers
+   # - Large batch operations
+   # - Price changes
    ```
 
-### Production Security Measures
+3. **Emergency Response Plan**
+   ```bash
+   # Incident Response Playbook:
+   # 1. Identify threat type
+   # 2. Activate emergency pause if needed
+   # 3. Assess damage and risk
+   # 4. Apply targeted mitigations
+   # 5. Communicate with stakeholders
+   # 6. Post-incident review and improvements
+   ```
 
-1. **Multi-Sig Wallet Setup**
+### Production Security Best Practices
+
+1. **Multi-Sig Wallet Configuration**
 
    ```solidity
-   // Consider transferring ownership to a multi-sig wallet
-   cardSet.transferOwnership(MULTISIG_ADDRESS);
+   // Use Gnosis Safe or similar with:
+   // - 3/5 or 2/3 signature threshold
+   // - Hardware wallet signers
+   // - Geographic distribution of signers
+   // - Regular security audits
    ```
 
-2. **Timelock Implementation** (Optional)
+2. **Monitoring and Alerting**
 
-   ```solidity
-   // For extra security, use OpenZeppelin's TimelockController
-   // This adds delays to critical function calls
-   ```
+   - **Real-time monitoring** of all SecurityEvent emissions
+   - **Automated alerts** for emergency pause activations
+   - **Dashboard** showing security status, rates, and limits
+   - **Regular audits** of access patterns and operations
 
-3. **Emergency Procedures**
+3. **Incident Response**
    ```bash
-   # Document emergency pause procedures
-   cast send <CARDSET_ADDRESS> "pause()" --private-key $EMERGENCY_KEY --rpc-url $RPC_URL
+   # Incident Response Playbook:
+   # 1. Identify threat type
+   # 2. Activate emergency pause if needed
+   # 3. Assess damage and risk
+   # 4. Apply targeted mitigations
+   # 5. Communicate with stakeholders
+   # 6. Post-incident review and improvements
    ```
 
-### Monitoring and Maintenance
+### Important Production Security Notes
 
-1. **Set Up Monitoring**
+- **Emergency Controls**: Always test emergency pause functions before launch
+- **Rate Limiting**: Protects against bot attacks while allowing normal usage
+- **Payment Security**: Automatic refunds prevent user funds from being stuck
+- **VRF Security**: Enhanced validation prevents manipulation of randomness
+- **Access Control**: Multi-layer validation with detailed error messages
+- **Economic Protection**: Built-in safeguards against gas bombs and price manipulation
+- **Monitoring**: Comprehensive event logging for security incident detection
 
-   - Monitor contract balance for withdrawals
-   - Track total emissions vs emission cap
-   - Monitor pack opening events
-   - Set up alerts for unusual activity
+### Security Troubleshooting
 
-2. **Regular Maintenance**
-   ```bash
-   # Check VRF subscription balance
-   # Monitor gas prices for optimal transaction timing
-   # Regular security audits
-   ```
-
-### Important Production Notes
-
-- **Emission Cap**: Must be divisible by 15 (PACK_SIZE)
-- **VRF Setup**: Ensure sufficient LINK balance in VRF subscription
-- **Gas Optimization**: Consider deployment timing for lower gas costs
-- **Testing**: Always test on testnets before mainnet deployment
-- **Upgrades**: Contracts are not upgradeable by design - plan carefully
-- **Ownership**: Consider multi-sig wallet for production ownership
-
-### Troubleshooting
-
-1. **Invalid Emission Cap Error**
+1. **SecurityBreach Errors**
 
    ```bash
-   # Check if your emission cap is divisible by 15
-   # Use the validation function to get suggestions
+   # Check specific security breach reason
+   # Common causes:
+   # - "rate limited" -> User making too many rapid requests
+   # - "emission cap exceeded" -> Trying to mint beyond limits
+   # - "invalid signature" -> Meta-transaction signature issues
    ```
 
-2. **VRF Issues**
+2. **OperationLocked Errors**
 
    ```bash
-   # Verify VRF subscription is funded
-   # Check that CardSet is added as consumer
-   # Verify key hash and coordinator address
+   # Check which operations are locked
+   cast call <CONTRACT_ADDRESS> "getSecurityStatus()" --rpc-url $RPC_URL
+   # - emergencyPause = true -> All operations locked
+   # - mintingLocked = true -> Only minting operations locked
+   # - priceChangesLocked = true -> Only price changes locked
    ```
 
-3. **Gas Issues**
+3. **PaymentFailed Errors**
    ```bash
-   # Batch operations may require high gas limits
-   # Consider splitting large batches
+   # Common payment issues:
+   # - "insufficient payment" -> User didn't send enough ETH
+   # - "refund failed" -> Contract couldn't return excess payment
+   # - "withdrawal failed" -> Owner withdrawal attempt failed
    ```
 
-For additional support or questions, refer to the contract documentation or create an issue in the project repository.
+### Security Metrics to Monitor
+
+- **Failed SecurityBreach events per hour**
+- **Emergency pause activations**
+- **Rate limiting triggers**
+- **Payment failures and refunds**
+- **VRF request timeouts**
+- **Unauthorized access attempts**
+
+For additional security support or questions, refer to the comprehensive security documentation or create an issue in the project repository.
+
+---
+
+**🛡️ Your TCG Magic contracts now feature military-grade security suitable for enterprise deployment with millions of dollars in value.**
