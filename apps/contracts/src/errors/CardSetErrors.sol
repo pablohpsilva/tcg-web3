@@ -14,6 +14,7 @@ library CardSetErrors {
     error EmissionCapExceeded();
     error EmissionCapReached();
     error InvalidEmissionCap();
+    error InvalidEmissionCapForPackSize(uint256 provided, uint256 suggestedLower, uint256 suggestedHigher);
     error SerializedCardCapExceeded(uint256 cardId, uint256 requested, uint256 available);
     
     // Card Management Errors

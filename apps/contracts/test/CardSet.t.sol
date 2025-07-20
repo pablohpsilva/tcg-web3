@@ -26,7 +26,7 @@ contract CardSetTest is Test {
     address public user2 = address(0x103);
     
     string constant SET_NAME = "Test Set S1";
-    uint256 constant EMISSION_CAP = 1000000;
+    uint256 constant EMISSION_CAP = 1000005; // Multiple of PACK_SIZE (15)
     uint256 constant PACK_PRICE = 0.01 ether;
     uint256 constant DECK_PRICE = 0.05 ether;
     
@@ -264,10 +264,25 @@ contract CardSetTest is Test {
     }
 
     function testOpenPackEmissionCapExceeded() public {
-        // Create a CardSet with very low emission cap
-        vm.prank(owner);
-        CardSet smallSet = new CardSet("Small Set", 10, address(vrfCoordinator), owner);
+        // Create a CardSet with emission cap for exactly 1 pack (15 cards)
+        vm.startPrank(owner);
+        CardSet smallSet = new CardSet("Small Set", 15, address(vrfCoordinator), owner);
         
+        // Add a card to enable pack opening
+        Card testCard = new Card(1, "Test Card", ICard.Rarity.COMMON, 0, "ipfs://test", owner);
+        testCard.addAuthorizedMinter(address(smallSet));
+        smallSet.addCardContract(address(testCard));
+        vm.stopPrank();
+        
+        // First pack should succeed
+        vm.prank(user1);
+        smallSet.openPack{value: PACK_PRICE}();
+        
+        // Fulfill VRF to complete the pack opening
+        uint256 requestId = vrfCoordinator.getLastRequestId();
+        vrfCoordinator.autoFulfillRequest(requestId, 15);
+        
+        // Second pack should fail due to emission cap reached
         vm.prank(user1);
         vm.expectRevert();
         smallSet.openPack{value: PACK_PRICE}();

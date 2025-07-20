@@ -67,6 +67,9 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable {
         if (emissionCap_ == 0) revert CardSetErrors.InvalidEmissionCap();
         if (vrfCoordinator_ == address(0)) revert CardSetErrors.InvalidVRFCoordinator();
         
+        // Validate emission cap for pack size compatibility
+        _validateEmissionCapForPackSize(emissionCap_);
+        
         setName = setName_;
         emissionCap = emissionCap_;
         _vrfCoordinator = MockVRFCoordinator(vrfCoordinator_);
@@ -526,7 +529,34 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
+    // ============ Emission Validation Functions ============
 
+    /**
+     * @dev Validate if an emission cap is compatible with pack size to ensure complete packs
+     * @param emissionCap_ The emission cap to validate
+     * @return isValid Whether the emission cap is valid
+     * @return suggestedLower Suggested lower emission cap (rounded down to nearest multiple)
+     * @return suggestedHigher Suggested higher emission cap (rounded up to nearest multiple)
+     */
+    function validateEmissionCapForPackSize(uint256 emissionCap_) 
+        external 
+        pure 
+        returns (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) 
+    {
+        return _calculateEmissionCapSuggestions(emissionCap_);
+    }
+
+    /**
+     * @dev Set a new emission cap (only if unlocked and valid for pack size)
+     * @param newEmissionCap The new emission cap to set
+     */
+    function setEmissionCap(uint256 newEmissionCap) external onlyOwner {
+        if (isLocked) revert CardSetErrors.SetIsLocked();
+        if (totalEmission > 0) revert CardSetErrors.EmissionCapReached(); // Cannot change after emission started
+        
+        _validateEmissionCapForPackSize(newEmissionCap);
+        emissionCap = newEmissionCap;
+    }
 
     // ============ Internal Functions ============
 
@@ -539,5 +569,57 @@ contract CardSet is ICardSet, Ownable, ReentrancyGuard, Pausable {
         // For deck opening, we don't need randomness - just mint the specified cards
         // This is a placeholder for potential future deck randomization
         (user, deckType); // Suppress unused parameter warnings
+    }
+
+    /**
+     * @dev Internal function to validate emission cap for pack size compatibility
+     * @param emissionCap_ The emission cap to validate
+     */
+    function _validateEmissionCapForPackSize(uint256 emissionCap_) internal pure {
+        if (emissionCap_ == 0) revert CardSetErrors.InvalidEmissionCap();
+        
+        (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) = _calculateEmissionCapSuggestions(emissionCap_);
+        
+        if (!isValid) {
+            revert CardSetErrors.InvalidEmissionCapForPackSize(emissionCap_, suggestedLower, suggestedHigher);
+        }
+    }
+
+    /**
+     * @dev Internal function to calculate emission cap suggestions
+     * @param emissionCap_ The emission cap to analyze
+     * @return isValid Whether the emission cap is valid (divisible by PACK_SIZE)
+     * @return suggestedLower Suggested lower emission cap (largest multiple of PACK_SIZE ≤ emissionCap_)
+     * @return suggestedHigher Suggested higher emission cap (smallest multiple of PACK_SIZE ≥ emissionCap_)
+     */
+    function _calculateEmissionCapSuggestions(uint256 emissionCap_) 
+        internal 
+        pure 
+        returns (bool isValid, uint256 suggestedLower, uint256 suggestedHigher) 
+    {
+        if (emissionCap_ == 0) {
+            return (false, 0, PACK_SIZE);
+        }
+
+        // Check if emission cap is divisible by pack size
+        isValid = (emissionCap_ % PACK_SIZE == 0);
+        
+        if (isValid) {
+            // If already valid, both suggestions are the same as input
+            suggestedLower = emissionCap_;
+            suggestedHigher = emissionCap_;
+        } else {
+            // Calculate nearest valid values
+            suggestedLower = (emissionCap_ / PACK_SIZE) * PACK_SIZE;
+            suggestedHigher = suggestedLower + PACK_SIZE;
+            
+            // Handle edge case where emissionCap_ < PACK_SIZE
+            if (emissionCap_ < PACK_SIZE) {
+                suggestedLower = 0; // No valid lower option
+                suggestedHigher = PACK_SIZE;
+            }
+        }
+        
+        return (isValid, suggestedLower, suggestedHigher);
     }
 } 

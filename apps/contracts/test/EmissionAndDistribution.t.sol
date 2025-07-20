@@ -78,27 +78,33 @@ contract EmissionAndDistributionTest is Test {
     }
 
     function testEmissionCapWithPartialPacks() public {
-        uint256 emissionCap = 157; // Not divisible by PACK_SIZE (15)
+        uint256 invalidEmissionCap = 157; // Not divisible by PACK_SIZE (15)
         
         vm.startPrank(owner);
-        cardSet = new CardSet("Test Set", emissionCap, address(vrfCoordinator), owner);
+        
+        // Should revert when trying to create CardSet with invalid emission cap
+        vm.expectRevert();
+        cardSet = new CardSet("Test Set", invalidEmissionCap, address(vrfCoordinator), owner);
+        
+        // Create with valid emission cap instead (150 = 10 complete packs)
+        cardSet = new CardSet("Test Set", 150, address(vrfCoordinator), owner);
         _deployAndAddBasicCards();
         vm.stopPrank();
         
         vm.startPrank(user1);
         
-        // Open 10 complete packs (150 cards)
+        // Open 10 complete packs (150 cards) - should use exactly all emission
         for (uint256 i = 0; i < 10; i++) {
             cardSet.openPack{value: PACK_PRICE}();
             uint256 requestId = vrfCoordinator.getLastRequestId();
             vrfCoordinator.autoFulfillRequest(requestId, PACK_SIZE);
         }
         
-        // Should be at 150 cards
+        // Should be at exactly 150 cards (emission cap)
         assertEq(cardSet.totalEmission(), 150);
         
-        // Try to open another pack (would need 15 more cards, but only 7 remaining)
-        vm.expectRevert(); // Should fail - not enough emission left
+        // Try to open another pack - should fail due to emission cap reached
+        vm.expectRevert();
         cardSet.openPack{value: PACK_PRICE}();
         
         vm.stopPrank();

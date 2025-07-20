@@ -19,7 +19,7 @@ contract BatchCreationAndLockTest is Test {
     address public owner = address(0x101);
     address public user1 = address(0x102);
     
-    uint256 constant EMISSION_CAP = 1000;
+    uint256 constant EMISSION_CAP = 1005; // Multiple of PACK_SIZE (15)
     uint256 constant PACK_PRICE = 0.01 ether;
 
     event CardContractsBatchCreated(address[] cardContracts, uint256[] cardIds, string[] names, ICard.Rarity[] rarities);
