@@ -282,7 +282,7 @@ contract RoyaltySystemTest is Test {
         
         // Test royalty limit (max 10%)
         console.log("Testing royalty limit...");
-        vm.expectRevert("Royalty too high");
+        vm.expectRevert(abi.encodeWithSignature("ExceedsLimit(string,uint256,uint256)", "royalty", 1001, 1000));
         card.setRoyalty(1001); // 10.01% should fail
         
         // Test valid royalty (exactly 10%)
