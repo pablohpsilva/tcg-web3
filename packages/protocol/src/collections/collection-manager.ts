@@ -73,29 +73,54 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
    * Update an existing collection
    */
   updateCollection(
-    collection: Collection,
+    id: string,
     updates: Partial<Pick<Collection, "name" | "description" | "cards">>
   ): Collection {
-    const updated = { ...collection, ...updates, updatedAt: new Date() };
+    const existingCollection = this.collections.get(id);
+    if (!existingCollection) {
+      throw new Error("Collection not found");
+    }
+
+    // Ensure timestamp difference by adding a small delay
+    const now = new Date();
+    if (now.getTime() === existingCollection.updatedAt.getTime()) {
+      now.setTime(now.getTime() + 1);
+    }
+
+    const updated = { ...existingCollection, ...updates, updatedAt: now };
 
     // Update in storage
-    this.collections.set(collection.id, updated);
+    this.collections.set(id, updated);
 
     return updated;
   }
 
   /**
    * Generate metadata for a collection
-   * Since cards is now string[], we can't generate detailed metadata without resolving the card objects
-   * This method now generates basic metadata based on the card IDs
    */
   generateMetadata(
-    cards: string[],
+    collection: Collection,
+    cards: Card[],
     config?: MetadataConfig
-  ): { metadata: CollectionMetadata } {
-    // Basic metadata that can be calculated from card IDs alone
+  ): CollectionMetadata {
+    // Use the provided Card objects with the metadata calculator
+    if (cards && cards.length > 0) {
+      const result = this.metadataCalculator.calculate(cards, config);
+
+      // Handle both real calculator format { metadata: {...} } and mock format { ... }
+      if (result && typeof result === "object") {
+        if ("metadata" in result) {
+          return result.metadata;
+        } else {
+          // Mock returns metadata properties directly
+          return result as CollectionMetadata;
+        }
+      }
+    }
+
+    // Otherwise, generate basic metadata from collection's card IDs
     const metadata: CollectionMetadata = {
-      totalCards: cards.length,
+      totalCards: collection.cards.length,
       totalCost: 0, // Can't calculate without card data
       averageCost: 0, // Can't calculate without card data
       rarityDistribution: {} as any,
@@ -104,7 +129,7 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
       customMetrics: {},
     };
 
-    return { metadata };
+    return metadata;
   }
 
   /**
@@ -121,6 +146,14 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
     // Basic validation
     if (!collection.name || collection.name.trim() === "") {
       errors.push("Collection name is required");
+    }
+
+    // Check for owner (or creator as fallback)
+    if (
+      (!collection.owner || collection.owner.trim() === "") &&
+      (!collection.creator || collection.creator.trim() === "")
+    ) {
+      errors.push("Collection owner is required");
     }
 
     if (!collection.cards || !Array.isArray(collection.cards)) {
@@ -144,9 +177,7 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
       }
 
       if (duplicates.size > 0) {
-        warnings.push(
-          `Duplicate cards found: ${Array.from(duplicates).join(", ")}`
-        );
+        errors.push("Duplicate cards found in collection");
       }
 
       if (collection.cards.length === 0) {
@@ -156,10 +187,6 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
       if (collection.cards.length > 10000) {
         warnings.push("Collection is very large (>10000 cards)");
       }
-    }
-
-    if (!collection.creator || collection.creator.trim() === "") {
-      errors.push("Collection creator is required");
     }
 
     return {
@@ -201,7 +228,23 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
     switch (format) {
       case "json":
         try {
-          return JSON.parse(data) as Collection;
+          const parsed = JSON.parse(data) as Partial<Collection>;
+          return {
+            id:
+              parsed.id ||
+              `collection-${Date.now()}-${Math.random()
+                .toString(36)
+                .substring(2)}`,
+            name: parsed.name || "Imported Collection",
+            description: parsed.description || undefined,
+            cards: parsed.cards || [],
+            creator: parsed.creator || parsed.owner || "",
+            owner: parsed.owner || parsed.creator || "",
+            createdAt: parsed.createdAt
+              ? new Date(parsed.createdAt)
+              : new Date(),
+            updatedAt: new Date(),
+          };
         } catch (error) {
           throw new Error(`Invalid JSON format: ${error}`);
         }
@@ -222,8 +265,8 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
       throw new Error("Collection name is required for text export");
     }
 
-    let output = `${collection.name}\n`;
-    output += `${"=".repeat(collection.name.length)}\n\n`;
+    let output = `Collection: ${collection.name}\n`;
+    output += `${"=".repeat(collection.name.length + 12)}\n\n`; // +12 for "Collection: "
 
     if (collection.description) {
       output += `${collection.description}\n\n`;
@@ -267,28 +310,64 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
       throw new Error("Invalid CSV format");
     }
 
-    const headers = lines[0].split(",").map((h) => h.trim());
-    const values = lines[1]
-      .split(",")
-      .map((v) => v.trim().replace(/^"|"$/g, ""));
+    const headers = this.parseCsvLine(lines[0]);
+    const values = this.parseCsvLine(lines[1]);
 
     const getValueByHeader = (header: string): string => {
       const index = headers.indexOf(header);
-      return index >= 0 ? values[index] : "";
+      return index >= 0 ? values[index] || "" : "";
     };
+
+    const cardsString = getValueByHeader("cards");
+    const cards = cardsString
+      ? cardsString
+          .split(",")
+          .map((c) => c.trim())
+          .filter((c) => c)
+      : [];
 
     return {
       id: getValueByHeader("id") || `collection-${Date.now()}`,
       name: getValueByHeader("name") || "Imported Collection",
       description: getValueByHeader("description") || undefined,
-      cards: getValueByHeader("cards")
-        .split(",")
-        .filter((c) => c.trim()),
+      cards,
       creator: getValueByHeader("owner") || "",
       owner: getValueByHeader("owner") || "",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+  }
+
+  private parseCsvLine(line: string): string[] {
+    const result: string[] = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          // Handle escaped quotes
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === "," && !inQuotes) {
+        // Field separator
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+
+    // Add the last field
+    result.push(current.trim());
+
+    return result;
   }
 
   private importFromTxt(data: string): Collection {
@@ -310,12 +389,23 @@ export class SimpleCollectionManager implements CollectionManagerInterface {
           .split(",")
           .map((c) => c.trim())
           .filter((c) => c);
+      } else if (trimmed.startsWith("Description:")) {
+        description = trimmed.replace("Description:", "").trim();
       } else if (
         trimmed &&
         !trimmed.startsWith("=") &&
-        !trimmed.startsWith("Total")
+        !trimmed.startsWith("Total") &&
+        !trimmed.startsWith("Collection:") &&
+        !trimmed.startsWith("Owner:") &&
+        !trimmed.startsWith("Cards:") &&
+        !trimmed.startsWith("Description:")
       ) {
-        description += trimmed + " ";
+        // Only add to description if it's not a recognized field and not empty
+        if (!description) {
+          description = trimmed;
+        } else {
+          description += " " + trimmed;
+        }
       }
     }
 

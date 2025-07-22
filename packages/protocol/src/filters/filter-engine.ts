@@ -401,17 +401,22 @@ export class FilterEngine<T = any> {
     context?: FilterContext
   ): boolean {
     if (filters.length === 0) return true;
+    if (filters.length === 1)
+      return this.evaluateFilter(item, filters[0], context);
 
+    // Build result by evaluating each filter and combining with logical operators
     let result = this.evaluateFilter(item, filters[0], context);
 
     for (let i = 1; i < filters.length; i++) {
       const filter = filters[i];
       const filterResult = this.evaluateFilter(item, filter, context);
 
-      if (filter.logicalOperator === LogicalOperator.OR) {
+      // Check the logical operator on the PREVIOUS filter, not current one
+      const previousFilter = filters[i - 1];
+      if (previousFilter.logicalOperator === LogicalOperator.OR) {
         result = result || filterResult;
       } else {
-        // Default to AND
+        // Default to AND if no logical operator specified
         result = result && filterResult;
       }
     }
@@ -427,15 +432,40 @@ export class FilterEngine<T = any> {
     filter: Filter,
     context?: FilterContext
   ): boolean {
+    // First evaluate the main filter condition
     const value = this.getNestedValue(item, filter.field);
 
     // Check for custom filter
     const customFilter = this.customFilters.get(filter.operator);
+    let mainResult: boolean;
+
     if (customFilter) {
-      return customFilter.handler(value, filter.value, context);
+      mainResult = customFilter.handler(value, filter.value, context);
+    } else {
+      // Fallback to built-in filters (shouldn't be reached since all are registered as custom)
+      mainResult = this.evaluateBuiltinFilter(item, filter);
     }
 
-    // Fallback to built-in filters (shouldn't be reached since all are registered as custom)
+    // If there are nested filters, evaluate them and combine with main result
+    if (filter.nestedFilters && filter.nestedFilters.length > 0) {
+      const nestedResult = this.evaluateFilterGroup(
+        item,
+        filter.nestedFilters,
+        context
+      );
+      // Combine main result with nested result using AND logic
+      return mainResult && nestedResult;
+    }
+
+    return mainResult;
+  }
+
+  /**
+   * Evaluate built-in filter operators (fallback)
+   */
+  private evaluateBuiltinFilter(item: T, filter: Filter): boolean {
+    const value = this.getNestedValue(item, filter.field);
+
     switch (filter.operator) {
       case FilterOperator.EQUALS:
         return value === filter.value;
@@ -682,22 +712,29 @@ export class FilterEngine<T = any> {
         const valueLower = value.toLowerCase();
         const filterLower = filterValue.toLowerCase();
 
-        // Simple fuzzy matching: allow 1 character difference
-        if (Math.abs(valueLower.length - filterLower.length) > 1) {
-          return false;
+        // If the filter value is contained in the value, it's a match
+        if (valueLower.includes(filterLower)) {
+          return true;
         }
 
-        let differences = 0;
-        const maxLength = Math.max(valueLower.length, filterLower.length);
+        // If the value contains most of the characters from filter in order
+        let filterIndex = 0;
+        let matchedChars = 0;
 
-        for (let i = 0; i < maxLength; i++) {
-          if (valueLower[i] !== filterLower[i]) {
-            differences++;
-            if (differences > 1) return false;
+        for (
+          let i = 0;
+          i < valueLower.length && filterIndex < filterLower.length;
+          i++
+        ) {
+          if (valueLower[i] === filterLower[filterIndex]) {
+            matchedChars++;
+            filterIndex++;
           }
         }
 
-        return differences <= 1;
+        // Consider it a match if at least 80% of the filter characters are found in order
+        const matchPercentage = matchedChars / filterLower.length;
+        return matchPercentage >= 0.8;
       },
       {
         description: "Fuzzy string matching",
@@ -709,17 +746,32 @@ export class FilterEngine<T = any> {
     this.registerFilter(
       "date_between" as FilterOperator,
       (value, filterValue) => {
-        if (
-          !(value instanceof Date) ||
-          !Array.isArray(filterValue) ||
-          filterValue.length !== 2
-        ) {
+        if (!(value instanceof Date)) {
           return false;
         }
 
-        const [start, end] = filterValue;
-        const time = value.getTime();
+        let start: Date, end: Date;
 
+        // Handle both array [start, end] and object {start, end} formats
+        if (Array.isArray(filterValue) && filterValue.length === 2) {
+          [start, end] = filterValue;
+        } else if (
+          filterValue &&
+          typeof filterValue === "object" &&
+          "start" in filterValue &&
+          "end" in filterValue
+        ) {
+          start = filterValue.start;
+          end = filterValue.end;
+        } else {
+          return false;
+        }
+
+        if (!(start instanceof Date) || !(end instanceof Date)) {
+          return false;
+        }
+
+        const time = value.getTime();
         return time >= start.getTime() && time <= end.getTime();
       },
       {

@@ -139,6 +139,14 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
       for (const rule of calculationConfig.customRules) {
         if (rule.enabled) {
           try {
+            // Validate that the field exists in the first card (if any cards exist)
+            if (cards.length > 0 && rule.field && !(rule.field in cards[0])) {
+              errors.push(
+                `Rule '${rule.id}': Field '${rule.field}' does not exist on card objects`
+              );
+              continue;
+            }
+
             const result = await this.calculateWithRule(cards, rule);
             (metadata.customMetrics as any)[rule.output.key] = result;
             rulesApplied.push(rule.id);
@@ -219,6 +227,8 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
         return this.mode(filteredCards, rule.field);
       case AggregationType.UNIQUE_COUNT:
         return this.uniqueCount(filteredCards, rule.field);
+      case AggregationType.GROUP_BY:
+        return this.groupBy(filteredCards, rule.field);
       case AggregationType.CUSTOM:
         if (rule.customCalculator) {
           return rule.customCalculator(filteredCards);
@@ -547,6 +557,19 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
       .filter((value) => typeof value === "number");
 
     return new Set(values).size;
+  }
+
+  private groupBy(cards: Card[], field: string): Record<string, number> {
+    if (cards.length === 0) return {};
+
+    const distribution: Record<string, number> = {};
+    for (const card of cards) {
+      const groupKey = (card as any)[field];
+      if (groupKey !== undefined && groupKey !== null) {
+        distribution[groupKey] = (distribution[groupKey] || 0) + 1;
+      }
+    }
+    return distribution;
   }
 
   private applyConditions(cards: Card[], conditions: any[]): Card[] {

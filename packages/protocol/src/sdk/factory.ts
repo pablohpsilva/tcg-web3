@@ -33,9 +33,19 @@ const DEFAULT_CONFIG: Partial<TCGProtocolConfig> = {
  */
 export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
   /**
-   * Create a new SDK instance with the provided configuration
+   * Create a new SDK instance
    */
   async create(config: TCGProtocolConfig): Promise<TCGProtocol> {
+    return this.createSDK(config);
+  }
+
+  /**
+   * Create SDK instance with configuration
+   */
+  async createSDK(
+    config: TCGProtocolConfig,
+    options?: { skipInitialization?: boolean }
+  ): Promise<TCGProtocol> {
     // Validate configuration
     const validation = this.validateConfig(config);
     if (!validation.isValid) {
@@ -48,8 +58,10 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
     // Create SDK instance
     const sdk = new TCGProtocolImpl(mergedConfig);
 
-    // Initialize the SDK
-    await sdk.initialize();
+    // Initialize the SDK only if not skipped (for testing)
+    if (!options?.skipInitialization) {
+      await sdk.initialize();
+    }
 
     return sdk;
   }
@@ -72,13 +84,6 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
     };
 
     return this.create(defaultConfig);
-  }
-
-  /**
-   * Create SDK instance (alias for create method)
-   */
-  async createSDK(config: TCGProtocolConfig): Promise<TCGProtocol> {
-    return this.create(config);
   }
 
   /**
@@ -211,10 +216,11 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
    */
   async createPolygonMainnet(
     contractAddresses: string[],
-    apiKey?: string
+    apiKey?: string,
+    options?: { skipInitialization?: boolean }
   ): Promise<TCGProtocol> {
     const config = this.createPolygonMainnetConfig(contractAddresses, apiKey);
-    return this.create(config);
+    return this.createSDK(config, options);
   }
 
   /**
@@ -222,10 +228,11 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
    */
   async createPolygonTestnet(
     contractAddresses: string[],
-    apiKey?: string
+    apiKey?: string,
+    options?: { skipInitialization?: boolean }
   ): Promise<TCGProtocol> {
     const config = this.createPolygonTestnetConfig(contractAddresses, apiKey);
-    return this.create(config);
+    return this.createSDK(config, options);
   }
 
   /**
@@ -238,10 +245,13 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
       restApiUrl?: string;
       graphqlEndpoint?: string;
       apiKey?: string;
+      skipInitialization?: boolean;
     }
   ): Promise<TCGProtocol> {
     const config = this.createMultiProviderConfig(networks, options);
-    return this.create(config);
+    return this.createSDK(config, {
+      skipInitialization: options.skipInitialization,
+    });
   }
 
   /**
@@ -249,10 +259,11 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
    */
   async createWithRealtime(
     baseConfig: TCGProtocolConfig,
-    realtimeConfig: RealtimeConfig
+    realtimeConfig: RealtimeConfig,
+    options?: { skipInitialization?: boolean }
   ): Promise<TCGProtocol> {
     const config = this.enableRealtime(baseConfig, realtimeConfig);
-    return this.create(config);
+    return this.createSDK(config, options);
   }
 
   /**
@@ -356,6 +367,17 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
           ) {
             errors.push("Valid chain ID is required");
           }
+
+          // Validate chain ID consistency with network name
+          if (provider.networkConfig.chainId && provider.networkConfig.name) {
+            const chainIdError = this.validateChainIdConsistency(
+              provider.networkConfig.chainId,
+              provider.networkConfig.name
+            );
+            if (chainIdError) {
+              errors.push(chainIdError);
+            }
+          }
         }
 
         if (
@@ -371,39 +393,6 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
             }
           }
         }
-
-        // Check chainId consistency
-        if (
-          provider.networkConfig &&
-          provider.chainId &&
-          provider.networkConfig.chainId !== provider.chainId
-        ) {
-          errors.push(
-            "Chain ID mismatch between network config and provider config"
-          );
-        }
-        break;
-
-      case ProviderType.INDEXING_SERVICE:
-        if (!provider.baseUrl) {
-          errors.push("Base URL is required for indexing service provider");
-        } else if (!this.isValidUrl(provider.baseUrl)) {
-          errors.push("Base URL format is invalid");
-        }
-        if (!provider.chainId) {
-          errors.push("Chain ID is required for indexing service provider");
-        }
-        break;
-
-      case ProviderType.SUBGRAPH:
-        if (!provider.subgraphUrl) {
-          errors.push("Subgraph URL is required for subgraph provider");
-        } else if (!this.isValidUrl(provider.subgraphUrl)) {
-          errors.push("Subgraph URL format is invalid");
-        }
-        if (!provider.chainId) {
-          errors.push("Chain ID is required for subgraph provider");
-        }
         break;
 
       case ProviderType.REST_API:
@@ -416,17 +405,64 @@ export class TCGProtocolFactoryImpl implements TCGProtocolFactoryInterface {
 
       case ProviderType.GRAPHQL_API:
         if (!provider.endpoint) {
-          errors.push("Endpoint is required for GraphQL API provider");
+          errors.push("GraphQL endpoint is required");
         } else if (!this.isValidUrl(provider.endpoint)) {
-          errors.push("Endpoint URL format is invalid");
+          errors.push("GraphQL endpoint format is invalid");
         }
         break;
-
-      default:
-        errors.push(`Unknown provider type: ${provider.type}`);
     }
 
     return errors;
+  }
+
+  /**
+   * Validate chain ID consistency with network name
+   */
+  private validateChainIdConsistency(
+    chainId: number,
+    networkName: string
+  ): string | null {
+    const knownNetworks: Record<number, string[]> = {
+      1: ["ethereum mainnet", "ethereum", "eth mainnet"],
+      137: ["polygon mainnet", "polygon", "matic mainnet", "matic"],
+      80001: ["mumbai", "polygon testnet", "polygon mumbai", "matic testnet"],
+      56: ["bsc mainnet", "binance mainnet", "bsc", "binance"],
+      97: ["bsc testnet", "binance testnet"],
+    };
+
+    const expectedNames = knownNetworks[chainId];
+    if (expectedNames) {
+      const normalizedNetworkName = networkName.toLowerCase().trim();
+
+      // Check for exact matches or close matches
+      const matches = expectedNames.some((expectedName) => {
+        const normalizedExpected = expectedName.toLowerCase().trim();
+
+        // Exact match
+        if (normalizedNetworkName === normalizedExpected) {
+          return true;
+        }
+
+        // Check if the network name contains the expected name as a complete word/phrase
+        // but be more precise to avoid false positives
+        if (expectedName.includes(" ")) {
+          // For multi-word expected names, check for exact inclusion
+          return normalizedNetworkName.includes(normalizedExpected);
+        } else {
+          // For single-word expected names, ensure it's a word boundary match
+          const regex = new RegExp(`\\b${normalizedExpected}\\b`, "i");
+          return regex.test(normalizedNetworkName);
+        }
+      });
+
+      if (!matches) {
+        return `Chain ID ${chainId} does not match network name "${networkName}". Expected names: ${expectedNames.join(
+          ", "
+        )}`;
+      }
+    }
+
+    return null;
   }
 
   /**

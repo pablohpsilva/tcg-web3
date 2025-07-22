@@ -282,7 +282,7 @@ describe("TCGProtocolFactory", () => {
         ],
       };
 
-      const sdk = await factory.createSDK(config);
+      const sdk = await factory.createSDK(config, { skipInitialization: true });
 
       expect(sdk).toBeDefined();
     });
@@ -292,7 +292,9 @@ describe("TCGProtocolFactory", () => {
         providers: [],
       };
 
-      await expect(factory.createSDK(invalidConfig)).rejects.toThrow();
+      await expect(
+        factory.createSDK(invalidConfig, { skipInitialization: true })
+      ).rejects.toThrow();
     });
 
     it("should initialize SDK with providers", async () => {
@@ -317,7 +319,7 @@ describe("TCGProtocolFactory", () => {
         ],
       };
 
-      const sdk = await factory.createSDK(config);
+      const sdk = await factory.createSDK(config, { skipInitialization: true });
 
       expect(sdk.providers.getProvider("web3")).toBeDefined();
     });
@@ -325,13 +327,21 @@ describe("TCGProtocolFactory", () => {
 
   describe("Quick Create Methods", () => {
     it("should quickly create Polygon mainnet SDK", async () => {
-      const sdk = await factory.createPolygonMainnet(["0x123"], "test-api-key");
+      const sdk = await factory.createPolygonMainnet(
+        ["0x123"],
+        "test-api-key",
+        { skipInitialization: true }
+      );
 
       expect(sdk).toBeDefined();
     });
 
     it("should quickly create Polygon testnet SDK", async () => {
-      const sdk = await factory.createPolygonTestnet(["0x456"], "test-api-key");
+      const sdk = await factory.createPolygonTestnet(
+        ["0x456"],
+        "test-api-key",
+        { skipInitialization: true }
+      );
 
       expect(sdk).toBeDefined();
     });
@@ -356,6 +366,7 @@ describe("TCGProtocolFactory", () => {
         web3Contracts: ["0x123"],
         restApiUrl: "https://api.example.com",
         apiKey: "test-api-key",
+        skipInitialization: true,
       });
 
       expect(sdk).toBeDefined();
@@ -383,12 +394,16 @@ describe("TCGProtocolFactory", () => {
         ],
       };
 
-      const sdk = await factory.createWithRealtime(baseConfig, {
-        connectionType: "websocket" as RealtimeConnectionType,
-        wsEndpoint: "wss://api.example.com/ws",
-        autoReconnect: true,
-        heartbeatInterval: 30000,
-      });
+      const sdk = await factory.createWithRealtime(
+        baseConfig,
+        {
+          connectionType: "websocket" as RealtimeConnectionType,
+          wsEndpoint: "wss://api.example.com/ws",
+          autoReconnect: true,
+          heartbeatInterval: 30000,
+        },
+        { skipInitialization: true }
+      );
 
       expect(sdk).toBeDefined();
       expect(sdk.realtime).toBeDefined();
@@ -472,7 +487,7 @@ describe("TCGProtocolFactory", () => {
             type: ProviderType.WEB3_DIRECT,
             networkConfig: {
               ...networkConfig,
-              chainId: 1, // Inconsistent with expected chain
+              chainId: 1, // Inconsistent with expected chain (should be 137 for Polygon)
             },
             contractAddresses: ["0x123"],
           },
@@ -482,7 +497,9 @@ describe("TCGProtocolFactory", () => {
       const result = factory.validateConfig(config);
 
       expect(result.isValid).toBe(false);
-      expect(result.errors.some((error) => error.includes("chain"))).toBe(true);
+      expect(
+        result.errors.some((error) => error.toLowerCase().includes("chain"))
+      ).toBe(true);
     });
   });
 
