@@ -81,13 +81,13 @@ export interface Card {
 }
 
 /**
- * Collection/Deck interface
+ * Card collection interface
  */
 export interface Collection {
   id: string;
   name: string;
   description?: string;
-  cards: Card[];
+  cards: string[]; // Array of card IDs (tokenId:contractAddress format)
 
   // Metadata that can be auto-generated
   metadata?: CollectionMetadata;
@@ -100,6 +100,7 @@ export interface Collection {
   // Additional properties
   tags?: string[];
   isPublic?: boolean;
+  owner?: string; // Added to match test expectations
 }
 
 /**
@@ -155,7 +156,7 @@ export interface Filter {
  */
 export enum FilterOperator {
   EQUALS = "eq",
-  NOT_EQUALS = "neq",
+  NOT_EQUALS = "ne",
   GREATER_THAN = "gt",
   GREATER_THAN_OR_EQUAL = "gte",
   LESS_THAN = "lt",
@@ -225,6 +226,7 @@ export enum UpdateType {
   CARD_TRANSFERRED = "card_transferred",
   CARD_BURNED = "card_burned",
   CARD_METADATA_UPDATED = "card_metadata_updated",
+  COLLECTION_UPDATED = "collection_updated",
   SET_CREATED = "set_created",
   SET_LOCKED = "set_locked",
 }

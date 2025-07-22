@@ -1,112 +1,165 @@
-import { CollectionManager } from "../types/sdk.js";
-import { Card, Collection } from "../types/core.js";
-import {
+import { Collection, Card, CollectionMetadata } from "../types/core.js";
+import type { MetadataConfig } from "../types/metadata.js";
+import type {
+  CollectionManager as CollectionManagerInterface,
   MetadataCalculatorInterface,
-  MetadataConfig,
-  MetadataCalculationResult,
-} from "../types/metadata.js";
+} from "../types/sdk.js";
 
 /**
- * Simple collection manager implementation
+ * Simple in-memory collection manager implementation
  */
-export class SimpleCollectionManager implements CollectionManager {
+export class SimpleCollectionManager implements CollectionManagerInterface {
+  private collections = new Map<string, Collection>();
+
   constructor(private metadataCalculator: MetadataCalculatorInterface) {}
 
-  async createCollection(
+  /**
+   * Create a new collection
+   */
+  createCollection(
     name: string,
-    cards: Card[],
-    options?: {
-      description?: string;
-      tags?: string[];
-      generateMetadata?: boolean;
-      metadataConfig?: Partial<MetadataConfig>;
-    }
-  ): Promise<Collection> {
+    cards: string[],
+    creator: string,
+    description?: string
+  ): Collection {
     const collection: Collection = {
-      id: `collection_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `collection-${Date.now()}-${Math.random().toString(36).substring(2)}`,
       name,
-      description: options?.description,
-      cards: [...cards],
-      creator: "unknown", // Would need to be passed in or determined from context
+      description,
+      cards: [...cards], // Copy the array
+      creator,
+      owner: creator,
       createdAt: new Date(),
       updatedAt: new Date(),
-      tags: options?.tags,
-      isPublic: false,
     };
 
-    if (options?.generateMetadata) {
-      const result = await this.generateMetadata(cards, options.metadataConfig);
-      collection.metadata = result.metadata;
-    }
+    // Store the collection
+    this.collections.set(collection.id, collection);
 
     return collection;
   }
 
-  async updateCollection(
-    collection: Collection,
-    updates: Partial<
-      Pick<Collection, "name" | "description" | "cards" | "tags">
-    >
-  ): Promise<Collection> {
-    const updated: Collection = {
-      ...collection,
-      ...updates,
-      updatedAt: new Date(),
-    };
+  /**
+   * Get a collection by ID
+   */
+  getCollection(id: string): Collection | undefined {
+    return this.collections.get(id);
+  }
 
-    // Regenerate metadata if cards changed
-    if (updates.cards && collection.metadata) {
-      const result = await this.generateMetadata(updated.cards);
-      updated.metadata = result.metadata;
+  /**
+   * List collections, optionally filtered by owner
+   */
+  listCollections(owner?: string): Collection[] {
+    const allCollections = Array.from(this.collections.values());
+
+    if (owner) {
+      return allCollections.filter(
+        (collection) =>
+          collection.creator === owner || collection.owner === owner
+      );
     }
+
+    return allCollections;
+  }
+
+  /**
+   * Delete a collection
+   */
+  deleteCollection(id: string): boolean {
+    return this.collections.delete(id);
+  }
+
+  /**
+   * Update an existing collection
+   */
+  updateCollection(
+    collection: Collection,
+    updates: Partial<Pick<Collection, "name" | "description" | "cards">>
+  ): Collection {
+    const updated = { ...collection, ...updates, updatedAt: new Date() };
+
+    // Update in storage
+    this.collections.set(collection.id, updated);
 
     return updated;
   }
 
-  async generateMetadata(
-    cards: Card[],
-    config?: Partial<MetadataConfig>
-  ): Promise<MetadataCalculationResult> {
-    return this.metadataCalculator.calculate(cards, config);
+  /**
+   * Generate metadata for a collection
+   * Since cards is now string[], we can't generate detailed metadata without resolving the card objects
+   * This method now generates basic metadata based on the card IDs
+   */
+  generateMetadata(
+    cards: string[],
+    config?: MetadataConfig
+  ): { metadata: CollectionMetadata } {
+    // Basic metadata that can be calculated from card IDs alone
+    const metadata: CollectionMetadata = {
+      totalCards: cards.length,
+      totalCost: 0, // Can't calculate without card data
+      averageCost: 0, // Can't calculate without card data
+      rarityDistribution: {} as any,
+      typeDistribution: {} as any,
+      setDistribution: {},
+      customMetrics: {},
+    };
+
+    return { metadata };
   }
 
-  async validateCollection(collection: Collection): Promise<{
+  /**
+   * Validate a collection
+   */
+  validateCollection(collection: Collection): {
     isValid: boolean;
     errors: string[];
     warnings: string[];
-  }> {
+  } {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Check for duplicate cards
-    const cardIds = new Set<string>();
-    const duplicates = new Set<string>();
+    // Basic validation
+    if (!collection.name || collection.name.trim() === "") {
+      errors.push("Collection name is required");
+    }
 
-    for (const card of collection.cards) {
-      const cardId = `${card.contractAddress}:${card.tokenId}`;
-      if (cardIds.has(cardId)) {
-        duplicates.add(cardId);
+    if (!collection.cards || !Array.isArray(collection.cards)) {
+      errors.push("Collection must have a cards array");
+    } else {
+      // Validate card IDs format
+      const cardIds = new Set<string>();
+      const duplicates = new Set<string>();
+
+      for (const cardId of collection.cards) {
+        if (typeof cardId !== "string") {
+          errors.push(`Invalid card ID format: ${cardId}`);
+          continue;
+        }
+
+        if (cardIds.has(cardId)) {
+          duplicates.add(cardId);
+        } else {
+          cardIds.add(cardId);
+        }
       }
-      cardIds.add(cardId);
-    }
 
-    if (duplicates.size > 0) {
-      warnings.push(
-        `Duplicate cards found: ${Array.from(duplicates).join(", ")}`
-      );
-    }
-
-    // Check for invalid cards (missing required fields)
-    for (let i = 0; i < collection.cards.length; i++) {
-      const card = collection.cards[i];
-      if (!card.tokenId || !card.contractAddress) {
-        errors.push(
-          `Card at index ${i} missing required fields (tokenId, contractAddress)`
+      if (duplicates.size > 0) {
+        warnings.push(
+          `Duplicate cards found: ${Array.from(duplicates).join(", ")}`
         );
       }
-      if (!card.name) {
-        warnings.push(`Card at index ${i} missing name`);
+
+      if (collection.cards.length === 0) {
+        warnings.push("Collection is empty");
       }
+
+      if (collection.cards.length > 10000) {
+        warnings.push("Collection is very large (>10000 cards)");
+      }
+    }
+
+    if (!collection.creator || collection.creator.trim() === "") {
+      errors.push("Collection creator is required");
     }
 
     return {
@@ -116,10 +169,13 @@ export class SimpleCollectionManager implements CollectionManager {
     };
   }
 
-  async exportCollection(
+  /**
+   * Export collection to various formats
+   */
+  exportCollection(
     collection: Collection,
     format: "json" | "csv" | "txt" | "mtga" | "mtgo"
-  ): Promise<string> {
+  ): string {
     switch (format) {
       case "json":
         return JSON.stringify(collection, null, 2);
@@ -131,24 +187,41 @@ export class SimpleCollectionManager implements CollectionManager {
         return this.exportToCsv(collection);
 
       default:
-        throw new Error(`Export format '${format}' not yet implemented`);
+        throw new Error(`Unsupported export format: ${format}`);
     }
   }
 
-  async importCollection(
+  /**
+   * Import collection from various formats
+   */
+  importCollection(
     data: string,
     format: "json" | "csv" | "txt" | "mtga" | "mtgo"
-  ): Promise<Collection> {
+  ): Collection {
     switch (format) {
       case "json":
-        return JSON.parse(data) as Collection;
+        try {
+          return JSON.parse(data) as Collection;
+        } catch (error) {
+          throw new Error(`Invalid JSON format: ${error}`);
+        }
+
+      case "csv":
+        return this.importFromCsv(data);
+
+      case "txt":
+        return this.importFromTxt(data);
 
       default:
-        throw new Error(`Import format '${format}' not yet implemented`);
+        throw new Error(`Unsupported import format: ${format}`);
     }
   }
 
   private exportToText(collection: Collection): string {
+    if (!collection.name) {
+      throw new Error("Collection name is required for text export");
+    }
+
     let output = `${collection.name}\n`;
     output += `${"=".repeat(collection.name.length)}\n\n`;
 
@@ -156,79 +229,106 @@ export class SimpleCollectionManager implements CollectionManager {
       output += `${collection.description}\n\n`;
     }
 
-    // Group cards by type
-    const cardsByType = new Map<string, Card[]>();
-    for (const card of collection.cards) {
-      const type = card.type || "Unknown";
-      if (!cardsByType.has(type)) {
-        cardsByType.set(type, []);
-      }
-      cardsByType.get(type)!.push(card);
-    }
-
-    for (const [type, cards] of cardsByType) {
-      output += `${type.charAt(0).toUpperCase() + type.slice(1)}s (${
-        cards.length
-      })\n`;
-      output += `-${"-".repeat(type.length + 8)}\n`;
-
-      for (const card of cards) {
-        const cost = card.cost !== undefined ? ` [${card.cost}]` : "";
-        const power =
-          card.power !== undefined && card.toughness !== undefined
-            ? ` (${card.power}/${card.toughness})`
-            : "";
-        output += `${card.name}${cost}${power}\n`;
-      }
-      output += "\n";
-    }
-
-    if (collection.metadata) {
-      output += "Statistics\n";
-      output += "----------\n";
-      output += `Total Cards: ${collection.metadata.totalCards}\n`;
-      output += `Total Cost: ${collection.metadata.totalCost}\n`;
-      output += `Average Cost: ${collection.metadata.averageCost?.toFixed(
-        2
-      )}\n`;
-      if (collection.metadata.powerLevel) {
-        output += `Power Level: ${collection.metadata.powerLevel.toFixed(2)}\n`;
-      }
-    }
+    output += `Owner: ${collection.owner || collection.creator}\n`;
+    output += `Cards: ${collection.cards.join(", ")}\n`;
+    output += `Total Cards: ${collection.cards.length}\n`;
 
     return output;
   }
 
   private exportToCsv(collection: Collection): string {
     const headers = [
-      "Name",
-      "Type",
-      "Rarity",
-      "Cost",
-      "Power",
-      "Toughness",
-      "Set",
-      "Token ID",
-      "Contract Address",
+      "id",
+      "name",
+      "cards",
+      "owner",
+      "description",
+      "created_at",
     ];
+
     let csv = headers.join(",") + "\n";
 
-    for (const card of collection.cards) {
-      const row = [
-        this.escapeCsv(card.name),
-        this.escapeCsv(card.type),
-        this.escapeCsv(card.rarity),
-        card.cost?.toString() || "",
-        card.power?.toString() || "",
-        card.toughness?.toString() || "",
-        this.escapeCsv(card.setName || ""),
-        this.escapeCsv(card.tokenId),
-        this.escapeCsv(card.contractAddress),
-      ];
-      csv += row.join(",") + "\n";
+    const row = [
+      this.escapeCsv(collection.id || ""),
+      this.escapeCsv(collection.name || ""),
+      this.escapeCsv(collection.cards.join(",")),
+      this.escapeCsv(collection.owner || collection.creator || ""),
+      this.escapeCsv(collection.description || ""),
+      this.escapeCsv(collection.createdAt?.toISOString() || ""),
+    ];
+
+    csv += row.join(",") + "\n";
+    return csv;
+  }
+
+  private importFromCsv(data: string): Collection {
+    const lines = data.trim().split("\n");
+    if (lines.length < 2) {
+      throw new Error("Invalid CSV format");
     }
 
-    return csv;
+    const headers = lines[0].split(",").map((h) => h.trim());
+    const values = lines[1]
+      .split(",")
+      .map((v) => v.trim().replace(/^"|"$/g, ""));
+
+    const getValueByHeader = (header: string): string => {
+      const index = headers.indexOf(header);
+      return index >= 0 ? values[index] : "";
+    };
+
+    return {
+      id: getValueByHeader("id") || `collection-${Date.now()}`,
+      name: getValueByHeader("name") || "Imported Collection",
+      description: getValueByHeader("description") || undefined,
+      cards: getValueByHeader("cards")
+        .split(",")
+        .filter((c) => c.trim()),
+      creator: getValueByHeader("owner") || "",
+      owner: getValueByHeader("owner") || "",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  private importFromTxt(data: string): Collection {
+    const lines = data.trim().split("\n");
+    let name = "Imported Collection";
+    let description = "";
+    let owner = "";
+    let cards: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("Collection:")) {
+        name = trimmed.replace("Collection:", "").trim();
+      } else if (trimmed.startsWith("Owner:")) {
+        owner = trimmed.replace("Owner:", "").trim();
+      } else if (trimmed.startsWith("Cards:")) {
+        const cardsStr = trimmed.replace("Cards:", "").trim();
+        cards = cardsStr
+          .split(",")
+          .map((c) => c.trim())
+          .filter((c) => c);
+      } else if (
+        trimmed &&
+        !trimmed.startsWith("=") &&
+        !trimmed.startsWith("Total")
+      ) {
+        description += trimmed + " ";
+      }
+    }
+
+    return {
+      id: `collection-${Date.now()}`,
+      name: name.trim(),
+      description: description.trim() || undefined,
+      cards,
+      creator: owner,
+      owner,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
   }
 
   private escapeCsv(value: string): string {

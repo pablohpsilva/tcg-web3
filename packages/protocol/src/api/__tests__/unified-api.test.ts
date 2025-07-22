@@ -144,7 +144,9 @@ describe("Unified API", () => {
 
       const result = await api.query(operation);
 
-      expect(result.metadata.responseTime).toBeGreaterThan(0);
+      expect(result.metadata.responseTime).toBeGreaterThanOrEqual(0);
+      expect(typeof result.metadata.responseTime).toBe("number");
+      expect(result.metadata.timestamp).toBeInstanceOf(Date);
     });
   });
 

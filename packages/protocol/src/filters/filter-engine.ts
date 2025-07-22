@@ -32,6 +32,17 @@ export interface FilterContext {
   allItems?: any[];
   currentIndex?: number;
   metadata?: Record<string, any>;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Custom sorter registration
+ */
+export interface CustomSorter {
+  name: string;
+  apply: (a: any, b: any) => number;
+  description?: string;
 }
 
 /**
@@ -39,7 +50,7 @@ export interface FilterContext {
  */
 export interface CustomFilter {
   operator: string;
-  handler: FilterFunction;
+  apply: FilterFunction;
   description?: string;
   supportedTypes?: (
     | "string"
@@ -97,25 +108,35 @@ export class FilterEngine<T = any> {
     this.registerBuiltinFilters();
     this.registerBuiltinSorters();
     this.registerCardFields();
+    this.registerDefaultPresets();
   }
 
   /**
    * Apply filters to a dataset
    */
   applyFilters(items: T[], filters: Filter[], context?: FilterContext): T[] {
-    if (!filters || filters.length === 0) {
-      return items;
+    let result = items;
+
+    if (filters && filters.length > 0) {
+      result = items.filter((item, index) => {
+        const itemContext = {
+          ...context,
+          allItems: items,
+          currentIndex: index,
+        };
+
+        return this.evaluateFilterGroup(item, filters, itemContext);
+      });
     }
 
-    return items.filter((item, index) => {
-      const itemContext = {
-        ...context,
-        allItems: items,
-        currentIndex: index,
-      };
+    // Apply pagination if specified in context
+    if (context?.page && context?.pageSize) {
+      const startIndex = (context.page - 1) * context.pageSize;
+      const endIndex = startIndex + context.pageSize;
+      result = result.slice(startIndex, endIndex);
+    }
 
-      return this.evaluateFilterGroup(item, filters, itemContext);
-    });
+    return result;
   }
 
   /**
@@ -164,6 +185,16 @@ export class FilterEngine<T = any> {
   }
 
   /**
+   * Register a custom filter operator (alias for registerFilter)
+   */
+  registerCustomFilter(filter: CustomFilter): void {
+    this.registerFilter(filter.operator, filter.apply, {
+      description: filter.description,
+      supportedTypes: filter.supportedTypes,
+    });
+  }
+
+  /**
    * Register a custom sort function for a field
    */
   registerSort(
@@ -179,6 +210,17 @@ export class FilterEngine<T = any> {
   }
 
   /**
+   * Register a custom sorter
+   */
+  registerCustomSorter(sorter: CustomSorter): void {
+    this.customSorters.set(sorter.name, {
+      name: sorter.name,
+      handler: sorter.apply,
+      description: sorter.description,
+    });
+  }
+
+  /**
    * Register field information for better filtering
    */
   registerField(fieldPath: string, info: FieldInfo): void {
@@ -190,6 +232,45 @@ export class FilterEngine<T = any> {
    */
   registerPreset(preset: FilterPreset): void {
     this.presets.set(preset.id, preset);
+  }
+
+  /**
+   * Register default filter presets
+   */
+  private registerDefaultPresets(): void {
+    // High value cards preset
+    this.presets.set("high_value_cards", {
+      id: "high_value_cards",
+      name: "High Value Cards",
+      description: "Cards with high cost or legendary rarity",
+      filters: [
+        {
+          field: "cost",
+          operator: FilterOperator.GREATER_THAN_OR_EQUAL,
+          value: 5,
+          logicalOperator: LogicalOperator.OR,
+        },
+        {
+          field: "rarity",
+          operator: FilterOperator.EQUALS,
+          value: "legendary",
+        },
+      ],
+    });
+
+    // Recent cards preset
+    this.presets.set("recent_cards", {
+      id: "recent_cards",
+      name: "Recent Cards",
+      description: "Recently added cards",
+      filters: [
+        {
+          field: "createdAt",
+          operator: FilterOperator.GREATER_THAN,
+          value: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+        },
+      ],
+    });
   }
 
   /**
@@ -226,12 +307,13 @@ export class FilterEngine<T = any> {
   }
 
   /**
-   * Apply a filter preset
+   * Apply a preset filter configuration
    */
   applyPreset(items: T[], presetId: string, context?: FilterContext): T[] {
     const preset = this.presets.get(presetId);
     if (!preset) {
-      throw new Error(`Filter preset '${presetId}' not found`);
+      // Return empty array for unknown presets instead of throwing
+      return [];
     }
 
     return this.applyFilters(items, preset.filters, context);
@@ -350,10 +432,10 @@ export class FilterEngine<T = any> {
     // Check for custom filter
     const customFilter = this.customFilters.get(filter.operator);
     if (customFilter) {
-      return customFilter.handler(item, filter.value, context);
+      return customFilter.handler(value, filter.value, context);
     }
 
-    // Fallback to built-in filters
+    // Fallback to built-in filters (shouldn't be reached since all are registered as custom)
     switch (filter.operator) {
       case FilterOperator.EQUALS:
         return value === filter.value;
@@ -367,18 +449,32 @@ export class FilterEngine<T = any> {
         return Number(value) < Number(filter.value);
       case FilterOperator.LESS_THAN_OR_EQUAL:
         return Number(value) <= Number(filter.value);
-      case FilterOperator.IN:
-        return Array.isArray(filter.value) && filter.value.includes(value);
-      case FilterOperator.NOT_IN:
-        return Array.isArray(filter.value) && !filter.value.includes(value);
       case FilterOperator.CONTAINS:
-        return String(value)
-          .toLowerCase()
-          .includes(String(filter.value).toLowerCase());
+        if (typeof value === "string" && typeof filter.value === "string") {
+          return value.toLowerCase().includes(filter.value.toLowerCase());
+        }
+        if (Array.isArray(value)) {
+          return value.includes(filter.value);
+        }
+        return false;
       case FilterOperator.NOT_CONTAINS:
-        return !String(value)
-          .toLowerCase()
-          .includes(String(filter.value).toLowerCase());
+        if (typeof value === "string" && typeof filter.value === "string") {
+          return !value.toLowerCase().includes(filter.value.toLowerCase());
+        }
+        if (Array.isArray(value)) {
+          return !value.includes(filter.value);
+        }
+        return true;
+      case FilterOperator.IN:
+        if (Array.isArray(filter.value)) {
+          return filter.value.includes(value);
+        }
+        return false;
+      case FilterOperator.NOT_IN:
+        if (Array.isArray(filter.value)) {
+          return !filter.value.includes(value);
+        }
+        return true;
       case FilterOperator.STARTS_WITH:
         return String(value)
           .toLowerCase()
@@ -387,41 +483,43 @@ export class FilterEngine<T = any> {
         return String(value)
           .toLowerCase()
           .endsWith(String(filter.value).toLowerCase());
-      case FilterOperator.REGEX:
-        return new RegExp(filter.value, "i").test(String(value));
       default:
-        return true;
+        return false;
     }
   }
 
   /**
-   * Compare two items for sorting
+   * Compare two items based on sort configuration
    */
   private compareItems(a: T, b: T, sortConfig: SortConfig): number {
-    // Check for custom sorter
-    const customSort = this.customSorters.get(sortConfig.field);
-    if (customSort) {
-      return customSort.handler(a, b, sortConfig.direction);
+    // Check if a custom sorter is specified
+    if (sortConfig.customSorter) {
+      const customSorter = this.customSorters.get(sortConfig.customSorter);
+      if (customSorter) {
+        const result = customSorter.handler(a, b);
+        return sortConfig.direction === SortDirection.DESC ? -result : result;
+      }
     }
 
-    // Default sorting
-    const valueA = this.getNestedValue(a, sortConfig.field);
-    const valueB = this.getNestedValue(b, sortConfig.field);
-
-    let comparison = 0;
+    const aValue = this.getNestedValue(a, sortConfig.field);
+    const bValue = this.getNestedValue(b, sortConfig.field);
 
     // Handle null/undefined values
-    if (valueA == null && valueB == null) return 0;
-    if (valueA == null) return 1;
-    if (valueB == null) return -1;
+    if (aValue == null && bValue == null) return 0;
+    if (aValue == null) return 1;
+    if (bValue == null) return -1;
 
-    // Type-specific comparison
-    if (typeof valueA === "number" && typeof valueB === "number") {
-      comparison = valueA - valueB;
-    } else if (valueA instanceof Date && valueB instanceof Date) {
-      comparison = valueA.getTime() - valueB.getTime();
+    // Compare values
+    let comparison = 0;
+    if (typeof aValue === "string" && typeof bValue === "string") {
+      comparison = aValue.localeCompare(bValue);
+    } else if (typeof aValue === "number" && typeof bValue === "number") {
+      comparison = aValue - bValue;
+    } else if (aValue instanceof Date && bValue instanceof Date) {
+      comparison = aValue.getTime() - bValue.getTime();
     } else {
-      comparison = String(valueA).localeCompare(String(valueB));
+      // Fallback to string comparison
+      comparison = String(aValue).localeCompare(String(bValue));
     }
 
     return sortConfig.direction === SortDirection.DESC
@@ -455,70 +553,151 @@ export class FilterEngine<T = any> {
    * Register built-in filter operators
    */
   private registerBuiltinFilters(): void {
-    // Array-specific filters
+    // Basic operators
     this.registerFilter(
-      "array_contains",
-      (item, value) => {
-        const fieldValue = this.getNestedValue(item, "field");
-        return Array.isArray(fieldValue) && fieldValue.includes(value);
-      },
+      FilterOperator.EQUALS,
+      (value, filterValue) => value === filterValue,
       {
-        description: "Check if array contains a value",
-        supportedTypes: ["array"],
+        description: "Exact equality match",
+        supportedTypes: ["string", "number", "boolean"],
       }
     );
 
     this.registerFilter(
-      "array_length",
-      (item, value) => {
-        const fieldValue = this.getNestedValue(item, "field");
-        return Array.isArray(fieldValue) && fieldValue.length === value;
-      },
+      FilterOperator.NOT_EQUALS,
+      (value, filterValue) => value !== filterValue,
       {
-        description: "Check array length",
-        supportedTypes: ["array"],
+        description: "Not equal comparison",
+        supportedTypes: ["string", "number", "boolean"],
       }
     );
 
-    // Date-specific filters
     this.registerFilter(
-      "date_between",
-      (item, value) => {
-        const fieldValue = this.getNestedValue(item, "field");
-        if (
-          !(fieldValue instanceof Date) ||
-          !Array.isArray(value) ||
-          value.length !== 2
-        ) {
+      FilterOperator.GREATER_THAN,
+      (value, filterValue) => {
+        if (typeof value === "number" && typeof filterValue === "number") {
+          return value > filterValue;
+        }
+        if (value instanceof Date && filterValue instanceof Date) {
+          return value.getTime() > filterValue.getTime();
+        }
+        return false;
+      },
+      {
+        description: "Greater than comparison",
+        supportedTypes: ["number", "date"],
+      }
+    );
+
+    this.registerFilter(
+      FilterOperator.GREATER_THAN_OR_EQUAL,
+      (value, filterValue) => {
+        if (typeof value === "number" && typeof filterValue === "number") {
+          return value >= filterValue;
+        }
+        if (value instanceof Date && filterValue instanceof Date) {
+          return value.getTime() >= filterValue.getTime();
+        }
+        return false;
+      },
+      {
+        description: "Greater than or equal comparison",
+        supportedTypes: ["number", "date"],
+      }
+    );
+
+    this.registerFilter(
+      FilterOperator.LESS_THAN,
+      (value, filterValue) => {
+        if (typeof value === "number" && typeof filterValue === "number") {
+          return value < filterValue;
+        }
+        if (value instanceof Date && filterValue instanceof Date) {
+          return value.getTime() < filterValue.getTime();
+        }
+        return false;
+      },
+      {
+        description: "Less than comparison",
+        supportedTypes: ["number", "date"],
+      }
+    );
+
+    this.registerFilter(
+      FilterOperator.LESS_THAN_OR_EQUAL,
+      (value, filterValue) => {
+        if (typeof value === "number" && typeof filterValue === "number") {
+          return value <= filterValue;
+        }
+        if (value instanceof Date && filterValue instanceof Date) {
+          return value.getTime() <= filterValue.getTime();
+        }
+        return false;
+      },
+      {
+        description: "Less than or equal comparison",
+        supportedTypes: ["number", "date"],
+      }
+    );
+
+    this.registerFilter(
+      FilterOperator.CONTAINS,
+      (value, filterValue) => {
+        if (typeof value === "string" && typeof filterValue === "string") {
+          return value.toLowerCase().includes(filterValue.toLowerCase());
+        }
+        if (Array.isArray(value)) {
+          return value.includes(filterValue);
+        }
+        return false;
+      },
+      {
+        description: "Contains substring or array element",
+        supportedTypes: ["string", "array"],
+      }
+    );
+
+    this.registerFilter(
+      FilterOperator.IN,
+      (value, filterValue) => {
+        if (Array.isArray(filterValue)) {
+          return filterValue.includes(value);
+        }
+        return false;
+      },
+      {
+        description: "Value is in array",
+        supportedTypes: ["string", "number", "boolean"],
+      }
+    );
+
+    // Add fuzzy matching filter
+    this.registerFilter(
+      "fuzzy_match" as FilterOperator,
+      (value, filterValue) => {
+        if (typeof value !== "string" || typeof filterValue !== "string") {
           return false;
         }
-        const startDate = new Date(value[0]);
-        const endDate = new Date(value[1]);
-        return fieldValue >= startDate && fieldValue <= endDate;
-      },
-      {
-        description: "Check if date is between two dates",
-        supportedTypes: ["date"],
-      }
-    );
 
-    // String-specific filters
-    this.registerFilter(
-      "fuzzy_match",
-      (item, value) => {
-        const fieldValue = String(
-          this.getNestedValue(item, "field")
-        ).toLowerCase();
-        const searchValue = String(value).toLowerCase();
+        const valueLower = value.toLowerCase();
+        const filterLower = filterValue.toLowerCase();
 
-        // Simple fuzzy matching algorithm
-        let j = 0;
-        for (let i = 0; i < fieldValue.length && j < searchValue.length; i++) {
-          if (fieldValue[i] === searchValue[j]) {
-            j++;
+        // Simple fuzzy matching: allow 1 character difference
+        if (Math.abs(valueLower.length - filterLower.length) > 1) {
+          return false;
+        }
+
+        let differences = 0;
+        const maxLength = Math.max(valueLower.length, filterLower.length);
+
+        for (let i = 0; i < maxLength; i++) {
+          if (valueLower[i] !== filterLower[i]) {
+            differences++;
+            if (differences > 1) return false;
           }
         }
-        return j === searchValue.length;
+
+        return differences <= 1;
       },
       {
         description: "Fuzzy string matching",
@@ -526,16 +705,42 @@ export class FilterEngine<T = any> {
       }
     );
 
-    // Numeric filters
+    // Add date between filter
     this.registerFilter(
-      "multiple_of",
-      (item, value) => {
-        const fieldValue = Number(this.getNestedValue(item, "field"));
-        return !isNaN(fieldValue) && fieldValue % value === 0;
+      "date_between" as FilterOperator,
+      (value, filterValue) => {
+        if (
+          !(value instanceof Date) ||
+          !Array.isArray(filterValue) ||
+          filterValue.length !== 2
+        ) {
+          return false;
+        }
+
+        const [start, end] = filterValue;
+        const time = value.getTime();
+
+        return time >= start.getTime() && time <= end.getTime();
       },
       {
-        description: "Check if number is multiple of value",
-        supportedTypes: ["number"],
+        description: "Date is between two dates",
+        supportedTypes: ["date"],
+      }
+    );
+
+    // Add array contains filter
+    this.registerFilter(
+      "array_contains_keyword" as FilterOperator,
+      (value, filterValue) => {
+        if (!Array.isArray(value) || typeof filterValue !== "string") {
+          return false;
+        }
+
+        return value.includes(filterValue);
+      },
+      {
+        description: "Array contains specific value",
+        supportedTypes: ["array"],
       }
     );
   }

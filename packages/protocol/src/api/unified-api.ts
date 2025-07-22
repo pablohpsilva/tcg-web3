@@ -19,7 +19,7 @@ export interface UnifiedAPI {
   batchQuery<T = any>(operations: APIOperation[]): Promise<APIResponse<T>[]>;
 
   /**
-   * Subscribe to real-time updates
+   * Subscribe to real-time updates (GraphQL only)
    */
   subscribe?(
     operation: APIOperation,
@@ -27,7 +27,7 @@ export interface UnifiedAPI {
   ): Promise<string>;
 
   /**
-   * Unsubscribe from updates
+   * Unsubscribe from updates (GraphQL only)
    */
   unsubscribe?(subscriptionId: string): Promise<void>;
 
@@ -49,25 +49,17 @@ export interface APIOperation {
   // Operation type
   type: "query" | "mutation" | "subscription";
 
-  // Operation name/identifier
-  name: string;
-
-  // Parameters for the operation
-  params?: Record<string, any>;
-
   // For REST APIs
-  restConfig?: {
-    method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
-    endpoint: string;
-    headers?: Record<string, string>;
-  };
+  endpoint?: string;
+  method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+  params?: Record<string, any>;
+  data?: any;
+  headers?: Record<string, string>;
 
   // For GraphQL APIs
-  graphqlConfig?: {
-    query: string;
-    variables?: Record<string, any>;
-    operationName?: string;
-  };
+  query?: string;
+  variables?: Record<string, any>;
+  operationName?: string;
 
   // Response transformation
   transform?: (data: any) => any;
@@ -80,10 +72,11 @@ export interface APIResponse<T = any> {
   data: T;
   success: boolean;
   error?: string;
-  metadata?: {
+  metadata: {
     requestId?: string;
     timestamp: Date;
-    latency: number;
+    responseTime: number;
+    statusCode?: number;
   };
 }
 
@@ -92,8 +85,10 @@ export interface APIResponse<T = any> {
  */
 export class RestAPI implements UnifiedAPI {
   private client: AxiosInstance;
+  private config: RestApiProviderConfig;
 
   constructor(_config: RestApiProviderConfig) {
+    this.config = _config;
     this.client = axios.create({
       baseURL: _config.baseUrl,
       headers: {
@@ -108,24 +103,28 @@ export class RestAPI implements UnifiedAPI {
     const startTime = Date.now();
 
     try {
-      if (!operation.restConfig) {
-        throw new Error(
-          "REST configuration is required for REST API operations"
-        );
+      if (!operation.endpoint) {
+        throw new Error("Endpoint is required for REST API operations");
       }
 
+      const method = operation.method || "GET";
       const requestConfig: AxiosRequestConfig = {
-        method: operation.restConfig.method,
-        url: operation.restConfig.endpoint,
-        headers: operation.restConfig.headers,
-        ...(operation.params && {
-          [operation.restConfig.method === "GET" ? "params" : "data"]:
-            operation.params,
-        }),
+        method,
+        url: operation.endpoint,
+        headers: operation.headers,
       };
 
+      // Add params or data based on method
+      if (method === "GET" && operation.params) {
+        requestConfig.params = operation.params;
+      } else if (operation.data) {
+        requestConfig.data = operation.data;
+      } else if (operation.params && method !== "GET") {
+        requestConfig.data = operation.params;
+      }
+
       const response = await this.client.request(requestConfig);
-      const latency = Date.now() - startTime;
+      const responseTime = Date.now() - startTime;
 
       let data = response.data;
       if (operation.transform) {
@@ -137,18 +136,20 @@ export class RestAPI implements UnifiedAPI {
         success: true,
         metadata: {
           timestamp: new Date(),
-          latency,
+          responseTime,
+          statusCode: response.status,
         },
       };
     } catch (error: any) {
-      const latency = Date.now() - startTime;
+      const responseTime = Date.now() - startTime;
       return {
         data: null as T,
         success: false,
         error: error.message || "Unknown error occurred",
         metadata: {
           timestamp: new Date(),
-          latency,
+          responseTime,
+          statusCode: error.response?.status,
         },
       };
     }
@@ -211,29 +212,28 @@ export class GraphQLAPI implements UnifiedAPI {
     const startTime = Date.now();
 
     try {
-      if (!operation.graphqlConfig) {
-        throw new Error(
-          "GraphQL configuration is required for GraphQL API operations"
-        );
+      if (!operation.query) {
+        throw new Error("Query is required for GraphQL API operations");
       }
 
       const requestData = {
-        query: operation.graphqlConfig.query,
-        variables: operation.graphqlConfig.variables || {},
-        operationName: operation.graphqlConfig.operationName,
+        query: operation.query,
+        variables: operation.variables || {},
+        operationName: operation.operationName,
       };
 
       const response = await this.client.post("", requestData);
-      const latency = Date.now() - startTime;
+      const responseTime = Date.now() - startTime;
 
       if (response.data.errors) {
         return {
           data: null as T,
           success: false,
-          error: response.data.errors.map((e: any) => e.message).join(", "),
+          error: response.data.errors[0].message,
           metadata: {
             timestamp: new Date(),
-            latency,
+            responseTime,
+            statusCode: response.status,
           },
         };
       }
@@ -248,18 +248,20 @@ export class GraphQLAPI implements UnifiedAPI {
         success: true,
         metadata: {
           timestamp: new Date(),
-          latency,
+          responseTime,
+          statusCode: response.status,
         },
       };
     } catch (error: any) {
-      const latency = Date.now() - startTime;
+      const responseTime = Date.now() - startTime;
       return {
         data: null as T,
         success: false,
         error: error.message || "Unknown error occurred",
         metadata: {
           timestamp: new Date(),
-          latency,
+          responseTime,
+          statusCode: error.response?.status,
         },
       };
     }
@@ -282,12 +284,12 @@ export class GraphQLAPI implements UnifiedAPI {
     operation: APIOperation,
     callback: (data: any) => void
   ): Promise<string> {
-    if (!this.config.subscriptionEndpoint) {
-      throw new Error("Subscription endpoint not configured");
+    if (!this.config.wsEndpoint) {
+      throw new Error("WebSocket endpoint not configured");
     }
 
-    if (!operation.graphqlConfig) {
-      throw new Error("GraphQL configuration required for subscription");
+    if (!operation.query) {
+      throw new Error("Query is required for GraphQL subscription");
     }
 
     const subscriptionId = `sub_${Date.now()}_${Math.random()
@@ -297,7 +299,7 @@ export class GraphQLAPI implements UnifiedAPI {
     // Store subscription info
     this.subscriptions.set(subscriptionId, {
       callback,
-      query: operation.graphqlConfig.query,
+      query: operation.query,
     });
 
     // Initialize WebSocket connection if not exists
@@ -312,8 +314,8 @@ export class GraphQLAPI implements UnifiedAPI {
           id: subscriptionId,
           type: "start",
           payload: {
-            query: operation.graphqlConfig.query,
-            variables: operation.graphqlConfig.variables || {},
+            query: operation.query,
+            variables: operation.variables || {},
           },
         })
       );
@@ -337,7 +339,7 @@ export class GraphQLAPI implements UnifiedAPI {
 
   private async initializeWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const wsUrl = this.config.subscriptionEndpoint!.replace("http", "ws");
+      const wsUrl = this.config.wsEndpoint!.replace("http", "ws");
       this.wsConnection = new WebSocket(wsUrl, "graphql-ws");
 
       this.wsConnection.onopen = () => {
@@ -381,10 +383,7 @@ export class GraphQLAPI implements UnifiedAPI {
       // Simple introspection query to check health
       const response = await this.query({
         type: "query",
-        name: "health",
-        graphqlConfig: {
-          query: "{ __typename }",
-        },
+        query: "{ __typename }",
       });
 
       return {
@@ -412,13 +411,12 @@ export class UnifiedAPIFactory {
   static create(
     config: RestApiProviderConfig | GraphqlProviderConfig
   ): UnifiedAPI {
-    switch (config.type) {
-      case "rest_api":
-        return this.createRestAPI(config as RestApiProviderConfig);
-      case "graphql_api":
-        return this.createGraphQLAPI(config as GraphqlProviderConfig);
-      default:
-        throw new Error(`Unsupported API type: ${(config as any).type}`);
+    if ("baseUrl" in config) {
+      return this.createRestAPI(config as RestApiProviderConfig);
+    } else if ("endpoint" in config) {
+      return this.createGraphQLAPI(config as GraphqlProviderConfig);
+    } else {
+      throw new Error(`Unsupported API configuration`);
     }
   }
 }

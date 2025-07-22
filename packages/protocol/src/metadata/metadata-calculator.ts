@@ -49,7 +49,7 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
   private customCalculators = new Map<string, Calculator>();
   private cache = new Map<
     string,
-    { data: CollectionMetadata; timestamp: number }
+    { data: MetadataCalculationResult; timestamp: number }
   >();
 
   constructor(config?: Partial<MetadataConfig>) {
@@ -76,21 +76,11 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
     if (calculationConfig.settings.cacheResults) {
       const cached = this.getCachedResult(cacheKey);
       if (cached) {
-        return {
-          metadata: cached,
-          calculationTime: Date.now() - startTime,
-          rulesApplied: ["cached"],
-        };
+        return cached;
       }
     }
 
-    const metadata: CollectionMetadata = {
-      totalCards: 0,
-      totalCost: 0,
-      averageCost: 0,
-      rarityDistribution: {} as Record<CardRarity, number>,
-      typeDistribution: {} as Record<CardType, number>,
-      setDistribution: {},
+    const metadata: any = {
       customMetrics: {},
     };
 
@@ -177,26 +167,28 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
         metadata,
         calculationConfig.settings.roundingPrecision
       );
-
-      // Cache result
-      if (calculationConfig.settings.cacheResults) {
-        this.setCachedResult(
-          cacheKey,
-          metadata,
-          calculationConfig.settings.cacheTtl
-        );
-      }
     } catch (error) {
       errors.push(`Calculation failed: ${error}`);
     }
 
-    return {
+    const result = {
       metadata,
       calculationTime: Date.now() - startTime,
       rulesApplied,
       errors: errors.length > 0 ? errors : undefined,
       warnings: warnings.length > 0 ? warnings : undefined,
     };
+
+    // Cache result
+    if (calculationConfig.settings.cacheResults) {
+      this.setCachedResult(
+        cacheKey,
+        result,
+        calculationConfig.settings.cacheTtl
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -324,6 +316,13 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
     this.config = { ...this.config, ...config };
   }
 
+  /**
+   * Clear the cache
+   */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
   // Private helper methods
 
   private calculateTotalCards(cards: Card[]): number {
@@ -352,9 +351,7 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
     };
 
     for (const card of cards) {
-      if (card.rarity in distribution) {
-        distribution[card.rarity]++;
-      }
+      distribution[card.rarity] = (distribution[card.rarity] || 0) + 1;
     }
 
     return distribution;
@@ -371,9 +368,7 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
     };
 
     for (const card of cards) {
-      if (card.type in distribution) {
-        distribution[card.type]++;
-      }
+      distribution[card.type] = (distribution[card.type] || 0) + 1;
     }
 
     return distribution;
@@ -434,7 +429,7 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
     return totalToughness / creaturesWithToughness.length;
   }
 
-  private calculatePowerLevel(cards: Card[], _rule: any): number {
+  private calculatePowerLevel(cards: Card[], rule: any): number {
     // Basic power level calculation
     // This would be more sophisticated in a real implementation
     let powerLevel = 0;
@@ -470,52 +465,17 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
       powerLevel += cardPower;
     }
 
-    return powerLevel / Math.max(cards.length, 1);
+    return Math.min(
+      powerLevel / Math.max(cards.length, 1),
+      rule.powerLevelConfig?.maxPowerLevel || 10
+    );
   }
 
-  private applyConditions(cards: Card[], conditions: any[]): Card[] {
-    return cards.filter((card) => {
-      return conditions.every((condition) => {
-        const value = this.getNestedValue(card, condition.field);
-
-        switch (condition.operator) {
-          case "eq":
-            return value === condition.value;
-          case "neq":
-            return value !== condition.value;
-          case "gt":
-            return Number(value) > Number(condition.value);
-          case "gte":
-            return Number(value) >= Number(condition.value);
-          case "lt":
-            return Number(value) < Number(condition.value);
-          case "lte":
-            return Number(value) <= Number(condition.value);
-          case "in":
-            return (
-              Array.isArray(condition.value) && condition.value.includes(value)
-            );
-          case "nin":
-            return (
-              Array.isArray(condition.value) && !condition.value.includes(value)
-            );
-          case "contains":
-            return String(value)
-              .toLowerCase()
-              .includes(String(condition.value).toLowerCase());
-          case "regex":
-            return new RegExp(condition.value).test(String(value));
-          default:
-            return true;
-        }
-      });
-    });
-  }
-
+  // Aggregation helper methods
   private sum(cards: Card[], field: string): number {
     return cards.reduce((total, card) => {
-      const value = this.getNestedValue(card, field);
-      return total + (Number(value) || 0);
+      const value = (card as any)[field];
+      return total + (typeof value === "number" ? value : 0);
     }, 0);
   }
 
@@ -525,23 +485,26 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
   }
 
   private min(cards: Card[], field: string): number {
-    const values = cards.map(
-      (card) => Number(this.getNestedValue(card, field)) || 0
-    );
+    if (cards.length === 0) return 0;
+    const values = cards
+      .map((card) => (card as any)[field])
+      .filter((value) => typeof value === "number");
     return values.length > 0 ? Math.min(...values) : 0;
   }
 
   private max(cards: Card[], field: string): number {
-    const values = cards.map(
-      (card) => Number(this.getNestedValue(card, field)) || 0
-    );
+    if (cards.length === 0) return 0;
+    const values = cards
+      .map((card) => (card as any)[field])
+      .filter((value) => typeof value === "number");
     return values.length > 0 ? Math.max(...values) : 0;
   }
 
   private median(cards: Card[], field: string): number {
+    if (cards.length === 0) return 0;
     const values = cards
-      .map((card) => Number(this.getNestedValue(card, field)))
-      .filter((value) => !isNaN(value))
+      .map((card) => (card as any)[field])
+      .filter((value) => typeof value === "number")
       .sort((a, b) => a - b);
 
     if (values.length === 0) return 0;
@@ -552,21 +515,25 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
       : values[mid];
   }
 
-  private mode(cards: Card[], field: string): any {
-    const frequency: Record<string, number> = {};
+  private mode(cards: Card[], field: string): number {
+    if (cards.length === 0) return 0;
+    const values = cards
+      .map((card) => (card as any)[field])
+      .filter((value) => typeof value === "number");
 
-    for (const card of cards) {
-      const value = String(this.getNestedValue(card, field));
+    if (values.length === 0) return 0;
+
+    const frequency: Record<number, number> = {};
+    for (const value of values) {
       frequency[value] = (frequency[value] || 0) + 1;
     }
 
+    let mode = values[0];
     let maxCount = 0;
-    let mode: string | undefined;
-
     for (const [value, count] of Object.entries(frequency)) {
       if (count > maxCount) {
         maxCount = count;
-        mode = value;
+        mode = Number(value);
       }
     }
 
@@ -574,14 +541,50 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
   }
 
   private uniqueCount(cards: Card[], field: string): number {
-    const unique = new Set();
+    if (cards.length === 0) return 0;
+    const values = cards
+      .map((card) => (card as any)[field])
+      .filter((value) => typeof value === "number");
 
-    for (const card of cards) {
-      const value = this.getNestedValue(card, field);
-      unique.add(value);
-    }
+    return new Set(values).size;
+  }
 
-    return unique.size;
+  private applyConditions(cards: Card[], conditions: any[]): Card[] {
+    return cards.filter((card) => {
+      return conditions.every((condition) => {
+        const fieldValue = (card as any)[condition.field];
+        switch (condition.operator) {
+          case "eq":
+            return fieldValue === condition.value;
+          case "neq":
+            return fieldValue !== condition.value;
+          case "gt":
+            return fieldValue > condition.value;
+          case "gte":
+            return fieldValue >= condition.value;
+          case "lt":
+            return fieldValue < condition.value;
+          case "lte":
+            return fieldValue <= condition.value;
+          case "in":
+            return (
+              Array.isArray(condition.value) &&
+              condition.value.includes(fieldValue)
+            );
+          case "nin":
+            return (
+              Array.isArray(condition.value) &&
+              !condition.value.includes(fieldValue)
+            );
+          case "contains":
+            return String(fieldValue).includes(String(condition.value));
+          case "regex":
+            return new RegExp(condition.value).test(String(fieldValue));
+          default:
+            return true;
+        }
+      });
+    });
   }
 
   private getNestedValue(obj: any, path: string): any {
@@ -632,7 +635,7 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
     return Math.abs(hash).toString(16);
   }
 
-  private getCachedResult(key: string): CollectionMetadata | null {
+  private getCachedResult(key: string): MetadataCalculationResult | null {
     const cached = this.cache.get(key);
     if (!cached) return null;
 
@@ -647,11 +650,11 @@ export class MetadataCalculator implements MetadataCalculatorInterface {
 
   private setCachedResult(
     key: string,
-    metadata: CollectionMetadata,
+    result: MetadataCalculationResult,
     ttl: number
   ): void {
     this.cache.set(key, {
-      data: metadata,
+      data: result,
       timestamp: Date.now(),
     });
 
