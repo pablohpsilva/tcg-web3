@@ -66,21 +66,21 @@ class MTGJSONDownloader {
   findSetByName(sets, searchName) {
     const normalizedSearch = searchName.toLowerCase().trim();
 
-    // Try exact match first
+    // Try exact name match first
     let found = sets.find((set) => set.name.toLowerCase() === normalizedSearch);
 
-    // Try partial match
+    // Try exact set code match second (higher priority than partial matching)
+    if (!found) {
+      found = sets.find((set) => set.code.toLowerCase() === normalizedSearch);
+    }
+
+    // Try partial name match last
     if (!found) {
       found = sets.find(
         (set) =>
           set.name.toLowerCase().includes(normalizedSearch) ||
           normalizedSearch.includes(set.name.toLowerCase())
       );
-    }
-
-    // Try matching by set code
-    if (!found) {
-      found = sets.find((set) => set.code.toLowerCase() === normalizedSearch);
     }
 
     return found;
@@ -217,6 +217,18 @@ class MTGJSONDownloader {
       console.log(`Block: ${set.block}`);
     }
 
+    // Verify data completeness
+    if (
+      set.cards.length !== set.baseSetSize &&
+      set.cards.length !== set.totalSetSize
+    ) {
+      console.log(
+        `⚠️  Warning: Expected ${set.baseSetSize} cards but got ${set.cards.length}`
+      );
+    } else {
+      console.log(`✅ Complete set data downloaded successfully`);
+    }
+
     // Display some example cards
     if (set.cards.length > 0) {
       console.log("\n🃏 Sample Cards:");
@@ -231,6 +243,22 @@ class MTGJSONDownloader {
       if (set.cards.length > 5) {
         console.log(`... and ${set.cards.length - 5} more cards`);
       }
+    }
+
+    // Show card rarity breakdown
+    if (set.cards.length > 0) {
+      const rarityCount = set.cards.reduce((acc, card) => {
+        const rarity = card.rarity || "unknown";
+        acc[rarity] = (acc[rarity] || 0) + 1;
+        return acc;
+      }, {});
+
+      console.log("\n📊 Card Rarity Breakdown:");
+      Object.entries(rarityCount)
+        .sort(([, a], [, b]) => b - a)
+        .forEach(([rarity, count]) => {
+          console.log(`  ${rarity}: ${count} cards`);
+        });
     }
   }
 
