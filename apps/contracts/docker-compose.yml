@@ -1,0 +1,66 @@
+version: "3.8"
+
+services:
+  contracts-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tcg-magic-contracts
+    volumes:
+      # Mount source code for live development
+      - ./src:/workspace/src
+      - ./test:/workspace/test
+      - ./script:/workspace/script
+      - ./foundry.toml:/workspace/foundry.toml
+      - ./package.json:/workspace/package.json
+      - ./README.md:/workspace/README.md
+      - ./EMISSION_MECHANICS.md:/workspace/EMISSION_MECHANICS.md
+
+      # Mount cache and output directories
+      - contracts_cache:/workspace/cache
+      - contracts_out:/workspace/out
+
+      # Preserve lib directory but allow updates
+      - contracts_lib:/workspace/lib
+
+      # Preserve node_modules
+      - contracts_node_modules:/workspace/node_modules
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    environment:
+      - FOUNDRY_PROFILE=default
+      - FOUNDRY_SRC=src
+      - FOUNDRY_OUT=out
+      - FOUNDRY_LIBS=lib
+      - FOUNDRY_CACHE_PATH=/workspace/cache
+    ports:
+      - "8545:8545" # For local blockchain if needed
+    networks:
+      - contracts-network
+
+  # Optional: Local Ethereum node for testing
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: tcg-magic-anvil
+    command: ["anvil", "--host", "0.0.0.0", "--port", "8545"]
+    ports:
+      - "8546:8545" # Different port to avoid conflicts
+    networks:
+      - contracts-network
+    profiles:
+      - blockchain # Only start with --profile blockchain
+
+volumes:
+  contracts_cache:
+    name: tcg_magic_contracts_cache
+  contracts_out:
+    name: tcg_magic_contracts_out
+  contracts_lib:
+    name: tcg_magic_contracts_lib
+  contracts_node_modules:
+    name: tcg_magic_contracts_node_modules
+
+networks:
+  contracts-network:
+    driver: bridge
