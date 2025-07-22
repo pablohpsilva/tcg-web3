@@ -1,0 +1,76 @@
+{
+  "name": "@tcg-magic/protocol",
+  "version": "0.1.0",
+  "description": "A flexible SDK for managing TCG cards, collections, and metadata across multiple blockchains",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "lint": "eslint src/**/*.ts",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "tcg",
+    "trading-cards",
+    "blockchain",
+    "nft",
+    "polygon",
+    "ethereum",
+    "sdk",
+    "protocol"
+  ],
+  "author": "TCG Magic Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tcg-magic/tcg-magic.git",
+    "directory": "apps/protocol"
+  },
+  "dependencies": {
+    "ethers": "^6.8.0",
+    "axios": "^1.6.0",
+    "ws": "^8.14.0",
+    "eventemitter3": "^5.0.1",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.14.202",
+    "@types/node": "^20.8.0",
+    "@types/ws": "^8.5.8",
+    "tsup": "^7.2.0",
+    "typescript": "^5.2.0",
+    "vitest": "^0.34.0",
+    "eslint": "^8.51.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "rimraf": "^5.0.5"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
